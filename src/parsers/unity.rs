@@ -1,54 +1,59 @@
 use std::{
-    collections::HashSet,
     io::BufRead,
-    path::PathBuf,
+    sync::LazyLock,
 };
 use regex::Regex;
 use uuid::Uuid;
 use crate::{
+    asset::Asset,
     id::Id,
-    parsers::ParseError,
-    parsers::localized_text::LocStringParser,
+    parsers::{
+        localized_text::LocStringParser,
+        ParseError,
+        Parser,
+    },
 };
 
-pub fn parse(path: &PathBuf) -> Result<HashSet<Id>, ParseError> {
-    let id_regex = Regex::new(r"\d{32}").unwrap();
+static ID_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b([0-9a-f]{32})\b").expect("Failed to compile ID regex")
+});
 
-    let mut dependencies = HashSet::new();
+pub struct UnityObject;
 
-    let mut reader = match crate::util::read_file_no_bom(path) {
-        Ok(file) => file,
-        Err(e) => return Err(ParseError {
-            message: format!("Failed to read prefab file: {}", e),
-            inner: None,
-        }),
-    };
+impl Parser for UnityObject {
+    fn parse(asset: &mut Asset) -> Result<(), ParseError> {
+        let mut reader = match crate::util::read_file_no_bom(&asset.path) {
+            Ok(file) => file,
+            Err(e) => return Err(ParseError {
+                message: format!("Failed to read prefab file: {}", e),
+                inner: None,
+            }),
+        };
 
-    let mut loc_parser = LocStringParser::Start;
-    let mut line = String::new();
-    while let Ok(bytes) = reader.read_line(&mut line) && bytes > 0 {
-        loc_parser = loc_parser.update(&line);
-        if let LocStringParser::LocStringKey(id) = loc_parser {
-            dependencies.insert(id);
-            loc_parser = LocStringParser::Start;
+        let mut loc_parser = LocStringParser::Start;
+        let mut line = String::new();
+        while let Ok(bytes) = reader.read_line(&mut line) && bytes > 0 {
+            loc_parser = loc_parser.update(&line);
+            if let LocStringParser::LocStringKey(id) = loc_parser {
+                asset.dependencies.insert(id);
+                loc_parser = LocStringParser::Start;
+            }
+
+            if let Some(captures) = ID_REGEX.captures(&line)
+                && let Some(id_str) = captures.get(1)
+                && let Ok(uuid) = Uuid::parse_str(id_str.as_str())
+            {
+                asset.dependencies.insert(Id::new_uuid(uuid));
+            } else {
+                return Err(ParseError {
+                    message: format!("Invalid UUID found in prefab: {}", &line),
+                    inner: None,
+                });
+            }
+
+            line.clear();
         }
 
-        if let Some(captures) = id_regex.captures(&line)
-            && let Some(id_str) = captures.get(0) {
-            
-            match Uuid::parse_str(id_str.as_str()) {
-                Ok(uuid) => dependencies.insert(Id::Guid(uuid)),
-                Err(_) => {
-                    return Err(ParseError {
-                        message: format!("Invalid UUID found in prefab: {}", id_str.as_str()),
-                        inner: None,
-                    });
-                }
-            };
-        }
-
-        line.clear();
+        Ok(())
     }
-
-    Ok(dependencies)
 }

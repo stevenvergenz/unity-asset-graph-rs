@@ -1,25 +1,43 @@
 use std::{
     collections::HashMap,
     fs,
+    io::BufRead,
     path::PathBuf,
+    sync::LazyLock,
 };
+use regex::Regex;
+use uuid::Uuid;
 use crate::{
-    asset::Asset, id::Id, parsers::meta::Meta, util::read_file_no_bom
+    asset::Asset,
+    id::Id,
+    util::read_file_no_bom
 };
 
 use super::{Database, DatabaseError};
 
+static META_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^guid: ([0-9a-f]{32})$").expect("Failed to compile meta id regex")
+});
+
 impl Database {
     pub fn find_assets(&mut self) -> Result<(), DatabaseError> {
         for root in self.roots.iter() {
-            if let Err(e) = Self::find_assets_in_dir(root, &mut self.assets) {
+            let abs_root = match self.relative_to.as_ref() {
+                Some(rel) => rel.join(root),
+                None => root.clone(),
+            };
+            if let Err(e) = Self::find_assets_in_dir(&abs_root, self.relative_to.as_ref(), &mut self.assets) {
                 eprintln!("Error finding assets in '{}': {}", root.display(), e);
             }
         }
         Ok(())
     }
 
-    fn find_assets_in_dir(path: &PathBuf, assets: &mut HashMap<Id, Asset>) -> Result<(), DatabaseError> {
+    fn find_assets_in_dir(
+        path: &PathBuf, 
+        relative_to: Option<&PathBuf>, 
+        assets: &mut HashMap<Id, Asset>,
+    )-> Result<(), DatabaseError> {
         let dir = match fs::read_dir(path) {
             Ok(d) => d,
             Err(e) => {
@@ -41,8 +59,6 @@ impl Database {
                 _ => continue,
             };
 
-            println!("Checking {}", meta_path.display());
-
             // read the meta file
             let meta_reader = match read_file_no_bom(&meta_path) {
                 Ok(r) => r,
@@ -52,24 +68,36 @@ impl Database {
                 }),
             };
 
-            let meta_contents: Meta = match serde_yml::from_reader(meta_reader) {
-                Ok(m) => m,
-                Err(e) => {
-                    eprintln!("Error parsing .meta file '{}': {}", meta_path.display(), e);
-                    continue;
+            let mut asset_guid = None;
+            for line in meta_reader.lines() {
+                if let Ok(line) = line
+                    && let Some(captures) = META_REGEX.captures(&line)
+                    && let Some(m) = captures.get(1)
+                    && let Ok(uuid) = Uuid::parse_str(m.as_str()){
+                    // Extract the GUID from the meta file
+                    asset_guid = Some(uuid);
+                    break;
                 }
-            };
+            }
+            let asset_guid = asset_guid.expect("Meta file must contain a valid GUID");
 
             // process the asset file
             let asset_path = meta_path.with_extension("");
+
             if asset_path.is_dir() {
                 // Recursively find assets in subdirectories
-                if let Err(e) = Self::find_assets_in_dir(&asset_path, assets) {
+                if let Err(e) = Self::find_assets_in_dir(&asset_path, relative_to, assets) {
                     eprintln!("Error finding assets in '{}': {}", asset_path.display(), e);
                 }
             } else if asset_path.is_file() {
-                // Process the file as an asset
-                let asset = Asset::new(Id::Guid(meta_contents.guid), asset_path);
+                let rel_path = if let Some(rel_to) = relative_to
+                    && let Ok(rel) = asset_path.strip_prefix(rel_to) {
+                    PathBuf::from(rel)
+                }
+                else {
+                    asset_path
+                };
+                let asset = Asset::new(Id::new_uuid(asset_guid), rel_path);
                 assets.insert(asset.id.clone(), asset);
             }
         }

@@ -1,6 +1,13 @@
+use std::{
+    path::PathBuf,
+    collections::HashSet,
+};
+use crate::{
+    asset::Asset, database::Database, id::Id
+};
+
 pub mod manifest_json;
 pub mod package_json;
-pub mod meta;
 pub mod unity;
 pub mod localized_text;
 
@@ -21,3 +28,7 @@ impl std::fmt::Display for ParseError {
 }
 
 impl std::error::Error for ParseError {}
+
+pub trait Parser {
+    fn parse(asset: &mut Asset) -> Result<(), ParseError>;
+}

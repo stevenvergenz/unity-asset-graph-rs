@@ -5,7 +5,8 @@ use std::{
 use serde::Serialize;
 use crate::{
     id::Id,
-    parsers::unity,
+    database::Database,
+    parsers::{unity::UnityObject, ParseError, Parser},
 };
 
 #[derive(Serialize)]
@@ -24,6 +25,7 @@ pub struct Asset {
     pub id: Id,
     pub asset_type: AssetType,
     pub path: PathBuf,
+    pub loc_roots: HashSet<PathBuf>,
     pub dependencies: HashSet<Id>,
 }
 
@@ -39,24 +41,19 @@ impl Asset {
             _ => AssetType::Unknown,
         };
 
-        let deps = match asset_type {
-            AssetType::Prefab | AssetType::Scene => {
-                match unity::parse(&path) {
-                    Ok(deps) => deps,
-                    Err(e) => {
-                        eprintln!("Failed to parse asset at {} as Unity prefab or scene: {}", path.display(), e);
-                        HashSet::new()
-                    }
-                }
-            },
-            _ => HashSet::new(),
-        };
-        
         Self {
             id,
             asset_type,
             path,
-            dependencies: deps,
+            loc_roots: HashSet::new(),
+            dependencies: HashSet::new(),
+        }
+    }
+
+    pub fn read_contents(&mut self) -> Result<(), ParseError> {
+        match self.asset_type {
+            AssetType::Prefab => UnityObject::parse(self),
+            _ => { Ok(()) },
         }
     }
 }

@@ -1,6 +1,7 @@
 use std::{
     collections::{HashSet, HashMap },
     path::PathBuf,
+    fs,
 };
 use serde::Serialize;
 use crate::{asset::Asset, id::Id};
@@ -28,14 +29,28 @@ impl std::error::Error for DatabaseError {}
 
 #[derive(Serialize)]
 pub struct Database {
+    relative_to: Option<PathBuf>,
     roots: HashSet<PathBuf>,
+    loc_roots: HashSet<PathBuf>,
     assets: HashMap<Id, Asset>,
 }
 
 impl Database {
-    pub fn new(root: &str) -> Result<Self, DatabaseError> {
+    pub fn new(root: &str, relative_to: Option<&str>) -> Result<Self, DatabaseError> {
+        let relative_to = if let Some(pathstr) = relative_to
+            && let Ok(path) = fs::canonicalize(pathstr)
+        {
+            Some(path)
+        }
+        else {
+            eprintln!("failed to canonicalize relative path '{relative_to:?}'");
+            None
+        };
+
         let mut db = Self {
+            relative_to,
             roots: HashSet::new(),
+            loc_roots: HashSet::new(),
             assets: HashMap::new(),
         };
 
@@ -51,6 +66,10 @@ impl Database {
 
     pub fn roots(&self) -> &HashSet<PathBuf> {
         &self.roots
+    }
+
+    pub fn loc_roots(&self) -> impl Iterator<Item = &PathBuf> {
+        self.loc_roots.iter()
     }
 
     pub fn assets(&self) -> impl Iterator<Item = &Asset> {

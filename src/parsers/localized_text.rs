@@ -34,7 +34,7 @@ impl LocStringParser {
                 if let Some(captures) = key_re.captures(line)
                     && let Some(m) = captures.get(1)
                 {
-                    LocStringParser::LocStringKey(Id::Loc(m.as_str().to_string()))
+                    LocStringParser::LocStringKey(Id::new_loc(m.as_str()))
                 }
                 else {
                     LocStringParser::LocalizedString
