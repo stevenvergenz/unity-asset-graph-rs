@@ -2,14 +2,13 @@ use std::{
     path::PathBuf,
     collections::HashSet,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use crate::{
     id::Id,
-    database::Database,
     parsers::{unity::UnityObject, ParseError, Parser},
 };
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub enum AssetType {
     Prefab,
     Scene,
@@ -20,7 +19,21 @@ pub enum AssetType {
     Unknown,
 }
 
-#[derive(Serialize)]
+impl std::fmt::Display for AssetType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AssetType::Prefab => write!(f, "Prefab"),
+            AssetType::Scene => write!(f, "Scene"),
+            AssetType::Texture => write!(f, "Texture"),
+            AssetType::Model => write!(f, "Model"),
+            AssetType::Audio => write!(f, "Audio"),
+            AssetType::Script => write!(f, "Script"),
+            AssetType::Unknown => write!(f, "Unknown"),
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
 pub struct Asset {
     pub id: Id,
     pub asset_type: AssetType,
@@ -50,10 +63,23 @@ impl Asset {
         }
     }
 
-    pub fn read_contents(&mut self) -> Result<(), ParseError> {
+    pub fn read_contents(&mut self, relative_to: Option<&PathBuf>) -> Result<(), ParseError> {
         match self.asset_type {
-            AssetType::Prefab => UnityObject::parse(self),
+            AssetType::Prefab => UnityObject::parse(self, relative_to),
             _ => { Ok(()) },
         }
+    }
+}
+
+impl std::fmt::Display for Asset {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Asset ID: {}", self.id)?;
+        writeln!(f, "Type: {}", self.asset_type)?;
+        writeln!(f, "Path: {}", self.path.display())?;
+        writeln!(f, "Dependencies:")?;
+        for dep in &self.dependencies {
+            writeln!(f, " - {}", dep)?;
+        }
+        Ok(())
     }
 }

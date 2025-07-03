@@ -1,9 +1,8 @@
 use std::{
     path::PathBuf,
-    collections::HashSet,
 };
 use crate::{
-    asset::Asset, database::Database, id::Id
+    asset::Asset,
 };
 
 pub mod manifest_json;
@@ -30,5 +29,5 @@ impl std::fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 pub trait Parser {
-    fn parse(asset: &mut Asset) -> Result<(), ParseError>;
+    fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<(), ParseError>;
 }

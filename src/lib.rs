@@ -1,5 +1,5 @@
 pub mod database;
 mod parsers;
-mod asset;
-mod id;
+pub mod asset;
+pub mod id;
 mod util;

@@ -33,6 +33,14 @@ impl Database {
         Ok(())
     }
 
+    pub fn resolve_assets(&mut self) -> () {
+        for asset in self.assets.values_mut() {
+            if let Err(e) = asset.read_contents(self.relative_to.as_ref()) {
+                eprintln!("Error resolving dependencies for asset '{}': {}", asset.path.display(), e);
+            }
+        }
+    }
+
     fn find_assets_in_dir(
         path: &PathBuf, 
         relative_to: Option<&PathBuf>, 

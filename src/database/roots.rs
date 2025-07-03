@@ -4,10 +4,11 @@ use std::{
     fs,
 };
 use crate::{
-    asset, parsers::{
+    parsers::{
         manifest_json::ManifestJson,
         package_json::PackageJson,
-    }, util::read_file_no_bom
+    },
+    util::read_file_no_bom
 };
 use super::{Database, DatabaseError};
 

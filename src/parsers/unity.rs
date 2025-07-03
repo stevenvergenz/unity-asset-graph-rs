@@ -1,6 +1,7 @@
 use std::{
     io::BufRead,
     sync::LazyLock,
+    path::PathBuf,
 };
 use regex::Regex;
 use uuid::Uuid;
@@ -21,8 +22,14 @@ static ID_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 pub struct UnityObject;
 
 impl Parser for UnityObject {
-    fn parse(asset: &mut Asset) -> Result<(), ParseError> {
-        let mut reader = match crate::util::read_file_no_bom(&asset.path) {
+    fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<(), ParseError> {
+        let path = if asset.path.is_relative() && let Some(root) = relative_to {
+            root.join(&asset.path)
+        } else {
+            asset.path.clone()
+        };
+
+        let mut reader = match crate::util::read_file_no_bom(&path) {
             Ok(file) => file,
             Err(e) => return Err(ParseError {
                 message: format!("Failed to read prefab file: {}", e),
@@ -44,11 +51,6 @@ impl Parser for UnityObject {
                 && let Ok(uuid) = Uuid::parse_str(id_str.as_str())
             {
                 asset.dependencies.insert(Id::new_uuid(uuid));
-            } else {
-                return Err(ParseError {
-                    message: format!("Invalid UUID found in prefab: {}", &line),
-                    inner: None,
-                });
             }
 
             line.clear();

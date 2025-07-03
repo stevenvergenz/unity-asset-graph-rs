@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
     fs,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use crate::{asset::Asset, id::Id};
 
 mod roots;
@@ -27,7 +27,7 @@ impl std::fmt::Display for DatabaseError {
 
 impl std::error::Error for DatabaseError {}
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct Database {
     relative_to: Option<PathBuf>,
     roots: HashSet<PathBuf>,
@@ -58,10 +58,6 @@ impl Database {
             Ok(_) => Ok(db),
             Err(e) => Err(e),
         }
-    }
-
-    pub fn populate(&mut self) -> Result<(), DatabaseError> {
-        self.find_assets()
     }
 
     pub fn roots(&self) -> &HashSet<PathBuf> {
