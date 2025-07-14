@@ -4,7 +4,10 @@ use std::{
     fs,
 };
 use serde::{Deserialize, Serialize};
-use crate::{asset::Asset, id::Id};
+use crate::{
+    asset::Asset, 
+    id::Id,
+};
 
 mod roots;
 mod assets;

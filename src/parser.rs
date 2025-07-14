@@ -1,14 +1,10 @@
-use std::{
-    path::PathBuf,
-};
-use crate::{
-    asset::Asset,
-};
+use std::path::PathBuf;
+use crate::asset::Asset;
 
 pub mod manifest_json;
 pub mod package_json;
-pub mod unity;
-pub mod localized_text;
+mod unity;
+mod localized_text;
 
 #[derive(Debug)]
 pub struct ParseError {
@@ -28,6 +24,9 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-pub trait Parser {
-    fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<(), ParseError>;
+pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
+    match asset.path.extension().and_then(|s| s.to_str()) {
+        Some("prefab") | Some("unity") | Some("scene") => unity::parse_unity(asset, relative_to),
+        _ => Ok(vec![]), // Not a Unity prefab or scene file
+    }
 }

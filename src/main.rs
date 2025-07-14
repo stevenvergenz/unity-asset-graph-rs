@@ -12,6 +12,7 @@ use uuid::Uuid;
 use asset_graph_rs::{
     database::Database,
     id::Id,
+    progress::ProgressIndicator,
 };
 
 #[derive(Parser)]
@@ -58,17 +59,12 @@ fn find_assets(db_path: String, root_path: String, relative_to: Option<String>) 
     let mut db = match Database::new(&root_path, relative_to.as_deref()) {
         Ok(db) => db,
         Err(e) => {
-            eprintln!("Error initializing database: {}", e);
-            std::process::exit(1);
+            panic!("Error initializing database: {}", e);
         }
     };
 
-    match db.find_assets() {
-        Ok(_) => println!("DB populated with {} assets in {} roots", db.assets().count(), db.roots().len()),
-        Err(e) => {
-            eprintln!("Error populating database: {}", e);
-            std::process::exit(1);
-        }
+    if let Err(e) = db.find_assets() {
+        panic!("Error finding assets: {}", e);
     }
 
     let mut file = File::create(&db_path)
@@ -80,8 +76,10 @@ fn find_assets(db_path: String, root_path: String, relative_to: Option<String>) 
 }
 
 fn resolve_assets(db_path: String) {
+    let progress = ProgressIndicator::new("Loading database", None);
     let file = File::open(&db_path)
         .expect(format!("Failed to open {db_path}").as_str());
+    progress.finish("Database loaded");
     let mut db: Database = match rmp_serde::from_read(file) {
         Ok(db) => {
             println!("Loaded database from {}", db_path);
@@ -118,7 +116,7 @@ fn info(db_path: &str, id: Option<Uuid>, name: Option<String>) {
     db.populate_reverse_dependencies();
 
     if let Some(id) = id {
-        match db.asset(&Id::new_uuid(id)) {
+        match db.asset(&Id::Guid(id)) {
             None => {
                 panic!("No asset found with ID: {}", id);
             },

@@ -4,7 +4,7 @@ use std::{
     fs,
 };
 use crate::{
-    parsers::{
+    parser::{
         manifest_json::ManifestJson,
         package_json::PackageJson,
     },

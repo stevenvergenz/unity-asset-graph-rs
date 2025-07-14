@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use crate::{
     id::Id,
     database::Database,
-    parsers::{unity::UnityObject, ParseError, Parser},
 };
 
 #[derive(Deserialize, Serialize)]
@@ -65,13 +64,6 @@ impl Asset {
             loc_roots: HashSet::new(),
             dependencies: HashSet::new(),
             dependents: HashSet::new(),
-        }
-    }
-
-    pub fn read_contents(&mut self, relative_to: Option<&PathBuf>) -> Result<(), ParseError> {
-        match self.asset_type {
-            AssetType::Prefab => UnityObject::parse(self, relative_to),
-            _ => { Ok(()) },
         }
     }
 
