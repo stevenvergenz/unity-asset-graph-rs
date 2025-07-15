@@ -36,12 +36,19 @@ impl std::fmt::Display for AssetType {
     }
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct LocInfo {
+    pub file_id: String,
+    pub name_bases: Vec<String>,
+}
+
 #[derive(Deserialize, Serialize, Default)]
 pub struct Asset {
     pub id: Id,
     pub asset_type: AssetType,
     pub path: PathBuf,
-    pub loc_roots: Vec<String>,
+
+    pub loc: Option<LocInfo>,
     pub dependencies: HashSet<Id>,
 
     #[serde(skip)]
@@ -57,7 +64,8 @@ impl Asset {
     }
     pub fn new_with_path(id: Id, path: PathBuf) -> Self {
         let mut a = Self::new(id);
-        a.asset_type = match path.extension().and_then(|s| s.to_str()) {
+        a.path = path;
+        a.asset_type = match &a.path.extension().and_then(|s| s.to_str()) {
             Some("prefab") => AssetType::Prefab,
             Some("unity") | Some("scene") => AssetType::Scene,
             Some("png") | Some("jpg") | Some("jpeg") => AssetType::Texture,
@@ -83,6 +91,7 @@ impl std::fmt::Display for Asset {
         writeln!(f, "Asset ID: {}", self.id)?;
         writeln!(f, "Type: {}", self.asset_type)?;
         writeln!(f, "Path: {}", self.path.display())?;
+        writeln!(f, "Loc Info: {:?}", self.loc)?;
         writeln!(f, "Dependents ({}):", self.dependents.len())?;
         for dep in &self.dependents {
             writeln!(f, " - {}", dep)?;
@@ -126,6 +135,7 @@ impl<'a, 'b> std::fmt::Display for BoundAsset<'a, 'b> {
         writeln!(f, "{first_indent}Asset ID: {}", self.asset.id)?;
         writeln!(f, "{indent_str}Type: {}", self.asset.asset_type)?;
         writeln!(f, "{indent_str}Path: {}", self.asset.path.display())?;
+        writeln!(f, "{indent_str}Loc Info: {:?}", self.asset.loc)?;
 
         let mut deps = vec![];
         for dep_id in self.asset.dependents.iter() {

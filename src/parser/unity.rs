@@ -6,7 +6,7 @@ use std::{
 use regex::Regex;
 use uuid::Uuid;
 use crate::{
-    asset::Asset,
+    asset::{Asset, LocInfo},
     id::Id,
     parser::{
         loc_text::LocStringParser,
@@ -56,8 +56,8 @@ fn parse_unity_reader(reader: &mut dyn BufRead, asset: &mut Asset) -> Result<Vec
         }
 
         locmgr_parser = locmgr_parser.update(&line);
-        if let LocManagerParser::Names(names) = locmgr_parser {
-            asset.loc_roots = names;
+        if let LocManagerParser::Names { file_id, name_bases } = locmgr_parser {
+            asset.loc = Some(LocInfo { file_id, name_bases });
             locmgr_parser = LocManagerParser::Start;
         }
 

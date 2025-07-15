@@ -1,6 +1,10 @@
 use std::sync::LazyLock;
 use regex::Regex;
 
+static FILE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^--- !u!114 &([\d]+)$").expect("Failed to compile file ID regex")
+});
+
 static RESOURCE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^  - (.*)$").expect("Failed to compile key regex")
 });
@@ -8,41 +12,46 @@ static RESOURCE_RE: LazyLock<Regex> = LazyLock::new(|| {
 #[derive(Debug, Clone)]
 pub enum LocManagerParser {
     Start,
-    File,
-    MonoBehaviour,
-    LocManager,
-    NamesWip(Vec<String>),
-    Names(Vec<String>),
+    File { file_id: String },
+    MonoBehaviour { file_id: String },
+    LocManager { file_id: String },
+    NamesWip { file_id: String, name_bases: Vec<String> },
+    Names { file_id: String, name_bases: Vec<String> },
 }
 
 impl LocManagerParser {
     pub fn update(self, line: &str) -> Self {
         let _orig = self.clone();
         let ret = match self {
-            LocManagerParser::Start if line.starts_with("---") => {
-                LocManagerParser::File
+            LocManagerParser::File { file_id } if line == "MonoBehaviour:" => {
+                LocManagerParser::MonoBehaviour { file_id }
             },
-            LocManagerParser::File if line == "MonoBehaviour:" => {
-                LocManagerParser::MonoBehaviour
+            LocManagerParser::MonoBehaviour { file_id } if line == "  m_Script: {fileID: 11500000, guid: 65ce276a26b28f94b8abe63deebd2050, type: 3}" => {
+                LocManagerParser::LocManager { file_id }
             },
-            LocManagerParser::MonoBehaviour if line == "  m_Script: {fileID: 11500000, guid: 65ce276a26b28f94b8abe63deebd2050, type: 3}" => {
-                LocManagerParser::LocManager
+            LocManagerParser::LocManager { file_id } if line == "  resourceNameBases:" => {
+                LocManagerParser::NamesWip { file_id, name_bases: vec![] }
             },
-            LocManagerParser::LocManager if line == "  resourceNameBases:" => {
-                LocManagerParser::NamesWip(vec![])
-            },
-            LocManagerParser::NamesWip(mut names) => {
+            LocManagerParser::NamesWip { file_id, mut name_bases } => {
                 if let Some(captures) = RESOURCE_RE.captures(line)
                     && let Some(m) = captures.get(1)
                 {
-                    names.push(m.as_str().into());
-                    LocManagerParser::NamesWip(names)
+                    name_bases.push(m.as_str().into());
+                    LocManagerParser::NamesWip { file_id, name_bases }
                 }
                 else {
-                    LocManagerParser::Names(names)
+                    LocManagerParser::Names { file_id, name_bases }
                 }
             },
-            _ => self,
+            _ => {
+                if let Some(captures) = FILE_RE.captures(line)
+                    && let Some(m) = captures.get(1)
+                {
+                    LocManagerParser::File { file_id: m.as_str().into() }
+                } else {
+                    self
+                }
+            }
         };
         
         //println!("{:?} -> {:?}: {line}", &_orig, &ret);
