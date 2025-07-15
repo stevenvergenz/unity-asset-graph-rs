@@ -103,29 +103,34 @@ impl<'a, 'b> std::fmt::Display for BoundAsset<'a, 'b> {
         writeln!(f, "Type: {}", self.asset.asset_type)?;
         writeln!(f, "Path: {}", self.asset.path.display())?;
 
-        writeln!(f, "Dependents ({}):", self.asset.dependents.len())?;
-        let mut deps: Vec<String> = self.asset.dependents.iter()
-            .map(|id| 
-                self.db.asset(id)
-                .and_then(|a|
-                    Some(a.path.display().to_string())
-                )
-                .unwrap_or(id.to_string())
-            ).collect();
+        let mut deps = vec![];
+        for dep_id in self.asset.dependents.iter() {
+            if let Some(dep_asset) = self.db.asset(dep_id) {
+                deps.push(dep_asset.path.display().to_string());
+            }
+            else {
+                deps.push(dep_id.to_string());
+            }
+        }
         deps.sort();
+
+        writeln!(f, "Dependents ({}):", deps.len())?;
         for dep in &deps {
             writeln!(f, " - {}", dep)?;
         }
 
-        writeln!(f, "Dependencies ({}):", self.asset.dependencies.len())?;
-        let mut deps: Vec<String> = self.asset.dependencies.iter()
-            .map(|id| 
-                self.db.asset(id)
-                .and_then(|a| Some(a.path.display().to_string()))
-                .unwrap_or(id.to_string())
-            ).collect();
+        let mut deps = vec![];
+        for dep_id in self.asset.dependencies.iter() {
+            if let Some(dep_asset) = self.db.asset(dep_id) {
+                deps.push(dep_asset.path.display().to_string());
+            }
+            else {
+                deps.push(dep_id.to_string());
+            }
+        }
         deps.sort();
 
+        writeln!(f, "Dependencies ({}):", deps.len())?;
         for dep in deps {
             writeln!(f, " - {}", dep)?;
         }

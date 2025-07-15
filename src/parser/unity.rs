@@ -32,9 +32,19 @@ pub fn parse_unity(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<V
         }),
     };
 
+    parse_unity_reader(&mut reader, asset)
+}
+
+fn parse_unity_reader(reader: &mut dyn BufRead, asset: &mut Asset) -> Result<Vec<Asset>, ParseError> {
     let mut loc_parser = LocStringParser::Start;
-    let mut line = String::new();
-    while let Ok(bytes) = reader.read_line(&mut line) && bytes > 0 {
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(e) => return Err(ParseError {
+                message: format!("Failed to read line: {}", e),
+                inner: None,
+            }),
+        };
         loc_parser = loc_parser.update(&line);
         if let LocStringParser::LocStringKey(id) = loc_parser {
             asset.dependencies.insert(id);
@@ -47,9 +57,58 @@ pub fn parse_unity(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<V
         {
             asset.dependencies.insert(Id::Guid(uuid));
         }
-
-        line.clear();
     }
 
     Ok(vec![])
+}
+
+#[cfg(test)]
+mod test {
+    use std::io::BufReader;
+
+    use super::*;
+
+    const PREFAB: &str = r#"%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &3561149108886604914 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 2746916251226383531, guid: 7c77678171dd7a24ead5c598179e6378,
+    type: 3}
+  m_PrefabInstance: {fileID: 1690186840591182041}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &4538655452972157934
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3561149108886604914}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 05503c2c5cf7b7f45bec1113802f99a0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  localizedString:
+    keepUnlocalized: 0
+    key: people_panel_people_label
+  canvasText: {fileID: 7690883829489752066}
+  tmpText: {fileID: 0}
+  accessibilityComponent: {fileID: 0}
+  allowEmptyKey: 0
+  OnTextChanged:
+    m_PersistentCalls:
+      m_Calls: []
+"#;
+
+    #[test]
+    fn test_parse_unity_reader() {
+        let mut reader = BufReader::new(PREFAB.as_bytes());
+        let mut asset = Asset::new(Id::Guid(Uuid::nil()), PathBuf::from("test.prefab"));
+        let result = parse_unity_reader(&mut reader, &mut asset);
+
+        assert!(result.is_ok());
+        assert!(asset.dependencies.contains(&Id::Guid(Uuid::parse_str("7c77678171dd7a24ead5c598179e6378").unwrap())));
+        assert!(asset.dependencies.contains(&Id::Guid(Uuid::parse_str("05503c2c5cf7b7f45bec1113802f99a0").unwrap())));
+        assert!(asset.dependencies.contains(&Id::Loc("people_panel_people_label".into())));
+    }
 }

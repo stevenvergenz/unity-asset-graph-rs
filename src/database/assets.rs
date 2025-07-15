@@ -89,7 +89,16 @@ impl Database {
 
     pub fn resolve_assets(&mut self) -> Result<(), DatabaseError> {
         let paths: Arc<Mutex<Vec<(Id, PathBuf)>>> = Arc::new(Mutex::new(
-            self.assets.values().map(|a| (a.id.clone(), a.path.clone())).collect()));
+            self.assets.values().filter_map(|a| {
+                if let Id::Guid(_) = a.id {
+                    Some((a.id.clone(), a.path.clone()))
+                }
+                else {
+                    None
+                }
+            })
+            .collect()
+        ));
         let (tx, rx) = mpsc::channel();
         let mut handles = vec![];
 
