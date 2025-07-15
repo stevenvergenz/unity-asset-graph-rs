@@ -5,11 +5,13 @@ use clap::{
     arg
 };
 use std::{
-    io::Write,
+    collections::HashMap,
     fs::File,
+    io::Write
 };
 use uuid::Uuid;
 use asset_graph_rs::{
+    asset::AssetType,
     database::Database,
     id::Id,
     progress::ProgressIndicator,
@@ -37,6 +39,28 @@ enum CliCommand {
         id: Option<Uuid>,
         #[arg(long)]
         name: Option<String>,
+    },
+    FindOrphans {
+        #[arg(long)]
+        id_type: Option<OrphanFilter>,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum OrphanFilter {
+    Guid,
+    Loc,
+}
+
+impl From<String> for OrphanFilter {
+    fn from(value: String) -> Self {
+        if value.eq_ignore_ascii_case("guid") {
+            OrphanFilter::Guid
+        } else if value.eq_ignore_ascii_case("loc") {
+            OrphanFilter::Loc
+        } else {
+            panic!("Invalid orphan filter type: {}", value);
+        }
     }
 }
 
@@ -51,6 +75,9 @@ fn main() {
         },
         CliCommand::Info { id, name } => {
             info(&args.db_path, id, name);
+        },
+        CliCommand::FindOrphans { id_type } => {
+            find_orphans(&args.db_path, id_type);
         }
     }
 }
@@ -138,4 +165,52 @@ fn info(db_path: &str, id: Option<Uuid>, name: Option<String>) {
         panic!("Either --id or --name must be provided");
     }
     
+}
+
+fn find_orphans(db_path: &str, id_type: Option<OrphanFilter>) {
+    let file = File::open(&db_path)
+        .expect(format!("Failed to open {db_path}").as_str());
+    let mut db: Database = match rmp_serde::from_read(file) {
+        Ok(db) => {
+            println!("Loaded database from {}", db_path);
+            db
+        },
+        Err(e) => {
+            panic!("Error reading database from {}: {}", db_path, e);
+        }
+    };
+    
+    db.populate_reverse_dependencies();
+
+    let mut orphans = HashMap::new();
+    let mut broken_refs = HashMap::new();
+    for asset in db.assets() {
+        if let Some(id_type) = id_type {
+            if id_type == OrphanFilter::Guid && let Id::Loc(_) = asset.id {
+                continue;
+            }
+            if id_type == OrphanFilter::Loc && let Id::Guid(_) = asset.id {
+                continue;
+            }
+        }
+
+        if asset.dependents.len() == 0 {
+            orphans.insert(asset.id.clone(), asset);
+        }
+        if asset.asset_type == AssetType::BrokenRef {
+            broken_refs.insert(asset.id.clone(), asset);
+        }
+    }
+
+    println!("Orphaned assets ({}):", orphans.len());
+    for asset in orphans.values() {
+        println!("{}", asset.bind(&db).indent());
+    }
+    println!("\nBroken references ({}):", broken_refs.len());
+    for asset in broken_refs.values() {
+        println!("{}", asset.bind(&db).indent());
+    }
+    if orphans.is_empty() && broken_refs.is_empty() {
+        println!("No orphaned assets or broken references found.");
+    }
 }

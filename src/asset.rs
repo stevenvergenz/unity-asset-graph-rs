@@ -8,7 +8,7 @@ use crate::{
     database::Database,
 };
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, PartialEq, Eq)]
 pub enum AssetType {
     Prefab,
     Scene,
@@ -17,6 +17,7 @@ pub enum AssetType {
     Audio,
     Script,
     Unknown,
+    BrokenRef,
 }
 
 impl std::fmt::Display for AssetType {
@@ -29,6 +30,7 @@ impl std::fmt::Display for AssetType {
             AssetType::Audio => write!(f, "Audio"),
             AssetType::Script => write!(f, "Script"),
             AssetType::Unknown => write!(f, "Unknown"),
+            AssetType::BrokenRef => write!(f, "Broken Reference"),
         }
     }
 }
@@ -71,6 +73,7 @@ impl Asset {
         BoundAsset {
             asset: self,
             db,
+            indent: 0,
         }
     }
 }
@@ -95,13 +98,34 @@ impl std::fmt::Display for Asset {
 pub struct BoundAsset<'a, 'b> {
     pub asset: &'a Asset,
     pub db: &'b Database,
+    indent: usize,
+}
+
+impl<'a, 'b> BoundAsset<'a, 'b> {
+    pub fn indent(self) -> Self {
+        Self {
+            asset: self.asset,
+            db: self.db,
+            indent: self.indent + 1,
+        }
+    }
+
+    pub fn unindent(self) -> Self{
+        Self {
+            asset: self.asset,
+            db: self.db,
+            indent: self.indent.saturating_sub(1),
+        }
+    }
 }
 
 impl<'a, 'b> std::fmt::Display for BoundAsset<'a, 'b> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Asset ID: {}", self.asset.id)?;
-        writeln!(f, "Type: {}", self.asset.asset_type)?;
-        writeln!(f, "Path: {}", self.asset.path.display())?;
+        let first_indent = format!("- {}", "  ".repeat(self.indent.saturating_sub(1)));
+        let indent_str = "  ".repeat(self.indent);
+        writeln!(f, "{first_indent}Asset ID: {}", self.asset.id)?;
+        writeln!(f, "{indent_str}Type: {}", self.asset.asset_type)?;
+        writeln!(f, "{indent_str}Path: {}", self.asset.path.display())?;
 
         let mut deps = vec![];
         for dep_id in self.asset.dependents.iter() {
@@ -114,9 +138,9 @@ impl<'a, 'b> std::fmt::Display for BoundAsset<'a, 'b> {
         }
         deps.sort();
 
-        writeln!(f, "Dependents ({}):", deps.len())?;
+        writeln!(f, "{indent_str}Dependents ({}):", deps.len())?;
         for dep in &deps {
-            writeln!(f, " - {}", dep)?;
+            writeln!(f, "{indent_str}- {}", dep)?;
         }
 
         let mut deps = vec![];
@@ -130,9 +154,9 @@ impl<'a, 'b> std::fmt::Display for BoundAsset<'a, 'b> {
         }
         deps.sort();
 
-        writeln!(f, "Dependencies ({}):", deps.len())?;
+        writeln!(f, "{indent_str}Dependencies ({}):", deps.len())?;
         for dep in deps {
-            writeln!(f, " - {}", dep)?;
+            writeln!(f, "{indent_str}- {}", dep)?;
         }
         Ok(())
     }

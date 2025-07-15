@@ -5,7 +5,7 @@ use std::{
 };
 use serde::{Deserialize, Serialize};
 use crate::{
-    asset::Asset, 
+    asset::{Asset, AssetType},
     id::Id,
 };
 
@@ -73,7 +73,16 @@ impl Database {
             for dep_id in &asset.dependencies {
                 let (id, mut dep) = match self.assets.remove_entry(dep_id) {
                     Some(e) => e,
-                    None => continue,
+                    None => {
+                        (dep_id.clone(), Asset {
+                            id: dep_id.clone(),
+                            path: PathBuf::new(),
+                            asset_type: AssetType::BrokenRef,
+                            dependencies: HashSet::new(),
+                            dependents: HashSet::new(),
+                            loc_roots: HashSet::new(),
+                        })
+                    },
                 };
                 dep.dependents.insert(asset_id.clone());
                 self.assets.insert(id, dep);
