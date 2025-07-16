@@ -5,16 +5,14 @@ use clap::{
     arg
 };
 use std::{
-    collections::HashMap,
-    fs::File,
-    io::Write
+    collections::HashMap, error::Error, fs::File, io::Write
 };
 use uuid::Uuid;
 use asset_graph_rs::{
     asset::AssetType,
     database::Database,
     id::Id,
-    progress::ProgressIndicator,
+    version::DatabaseFile,
 };
 
 #[derive(Parser)]
@@ -36,7 +34,7 @@ enum CliCommand {
     ResolveAssets,
     Info {
         #[arg(long)]
-        id: Option<Uuid>,
+        id: Option<String>,
         #[arg(long)]
         name: Option<String>,
     },
@@ -96,27 +94,25 @@ fn find_assets(db_path: String, root_path: String, relative_to: Option<String>) 
 
     let mut file = File::create(&db_path)
         .expect(format!("Failed to create {db_path}").as_str());
-    let bin = rmp_serde::to_vec(&db)
+    let bin = rmp_serde::to_vec(&DatabaseFile::from(db))
         .expect("Failed to serialize database");
     file.write_all(&bin)
         .expect(format!("Failed to write database to {db_path}").as_str());
 }
 
 fn resolve_assets(db_path: String) {
-    let progress = ProgressIndicator::new("Loading database", None);
     let file = File::open(&db_path)
         .expect(format!("Failed to open {db_path}").as_str());
-    progress.finish("Database loaded");
-    let mut db: Database = match rmp_serde::from_read(file) {
+    let db: DatabaseFile = match rmp_serde::from_read(file) {
         Ok(db) => {
             println!("Loaded database from {}", db_path);
             db
         },
-        Err(e) => {
-            eprintln!("Error reading database from {}: {}", db_path, e);
-            std::process::exit(1);
+        Err(_) => {
+            panic!("Error reading database from {}", db_path);
         }
     };
+    let mut db = db.database;
 
     if let Err(e) = db.resolve_assets() {
         panic!("Error resolving assets: {}", e);
@@ -124,13 +120,13 @@ fn resolve_assets(db_path: String) {
 
     let mut file = File::create(&db_path)
         .expect(format!("Failed to create {db_path}").as_str());
-    let bin = rmp_serde::to_vec(&db)
+    let bin = rmp_serde::to_vec(&DatabaseFile::from(db))
         .expect("Failed to serialize database");
     file.write_all(&bin)
         .expect(format!("Failed to write database to {db_path}").as_str());
 }
 
-fn info(db_path: &str, id: Option<Uuid>, name: Option<String>) {
+fn info(db_path: &str, id: Option<String>, name: Option<String>) {
     let file = File::open(&db_path)
         .expect(format!("Failed to open {db_path}").as_str());
     let mut db: Database = match rmp_serde::from_read(file) {
@@ -138,14 +134,21 @@ fn info(db_path: &str, id: Option<Uuid>, name: Option<String>) {
             println!("Loaded database from {}", db_path);
             db
         },
-        Err(e) => {
-            panic!("Error reading database from {}: {}", db_path, e);
+        Err(_) => {
+            panic!("Error reading database from {}", db_path);
         }
     };
     db.populate_reverse_dependencies();
 
-    if let Some(id) = id {
-        match db.asset(&Id::Guid(id)) {
+    if let Some(id) = id.as_ref() {
+        let asset = if let Ok(id) = Uuid::parse_str(&id) {
+            db.asset(&Id::Guid(id.clone()))
+        }
+        else {
+            db.asset(&Id::Loc(id.clone()))
+        };
+
+        match asset {
             None => {
                 panic!("No asset found with ID: {}", id);
             },
@@ -175,8 +178,8 @@ fn find_orphans(db_path: &str, id_type: Option<OrphanFilter>) {
             println!("Loaded database from {}", db_path);
             db
         },
-        Err(e) => {
-            panic!("Error reading database from {}: {}", db_path, e);
+        Err(_) => {
+            panic!("Error reading database from {}", db_path);
         }
     };
     
@@ -204,11 +207,11 @@ fn find_orphans(db_path: &str, id_type: Option<OrphanFilter>) {
 
     println!("Orphaned assets ({}):", orphans.len());
     for asset in orphans.values() {
-        println!("{}", asset.bind(&db).indent());
+        println!("{}", asset.bind(&db));
     }
     println!("\nBroken references ({}):", broken_refs.len());
     for asset in broken_refs.values() {
-        println!("{}", asset.bind(&db).indent());
+        println!("{}", asset.bind(&db));
     }
     if orphans.is_empty() && broken_refs.is_empty() {
         println!("No orphaned assets or broken references found.");

@@ -6,11 +6,10 @@ use std::{
 use regex::Regex;
 use uuid::Uuid;
 use crate::{
-    asset::{Asset, LocInfo},
+    asset::Asset,
     id::Id,
     parser::{
         loc_text::LocStringParser,
-        loc_manager::LocManagerParser,
         ParseError,
     },
 };
@@ -21,15 +20,14 @@ static ID_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 
 pub fn parse_unity(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
     let path = match relative_to {
-        Some(rel) => &rel.join(&asset.path),
-        None => &asset.path,
+        Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
+        None => asset.path.as_ref().unwrap(),
     };
 
     let mut reader = match crate::util::read_file_no_bom(path) {
         Ok(file) => file,
         Err(e) => return Err(ParseError {
             message: format!("Failed to read prefab file: {}", e),
-            inner: None,
         }),
     };
 
@@ -38,14 +36,12 @@ pub fn parse_unity(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<V
 
 fn parse_unity_reader(reader: &mut dyn BufRead, asset: &mut Asset) -> Result<Vec<Asset>, ParseError> {
     let mut loctext_parser = LocStringParser::Start;
-    let mut locmgr_parser = LocManagerParser::Start;
 
     for line in reader.lines() {
         let line = match line {
             Ok(l) => l,
             Err(e) => return Err(ParseError {
                 message: format!("Failed to read line: {}", e),
-                inner: None,
             }),
         };
 
@@ -53,12 +49,6 @@ fn parse_unity_reader(reader: &mut dyn BufRead, asset: &mut Asset) -> Result<Vec
         if let LocStringParser::LocStringKey(id) = loctext_parser {
             asset.dependencies.insert(id);
             loctext_parser = LocStringParser::Start;
-        }
-
-        locmgr_parser = locmgr_parser.update(&line);
-        if let LocManagerParser::Names { file_id, name_bases } = locmgr_parser {
-            asset.loc = Some(LocInfo { file_id, name_bases });
-            locmgr_parser = LocManagerParser::Start;
         }
 
         if let Some(captures) = ID_REGEX.captures(&line)

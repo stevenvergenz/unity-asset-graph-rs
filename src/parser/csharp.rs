@@ -16,15 +16,14 @@ static LOC_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 
 pub fn parse_csharp(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
     let path = match relative_to {
-        Some(rel) => &rel.join(&asset.path),
-        None => &asset.path,
+        Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
+        None => asset.path.as_ref().unwrap(),
     };
 
     let mut reader = match crate::util::read_file_no_bom(path) {
         Ok(file) => file,
         Err(e) => return Err(ParseError {
             message: format!("Failed to read prefab file: {}", e),
-            inner: None,
         }),
     };
 
@@ -37,7 +36,6 @@ fn parse_csharp_reader(reader: &mut dyn BufRead, asset: &mut Asset) -> Result<Ve
             Ok(l) => l,
             Err(e) => return Err(ParseError {
                 message: format!("Failed to read line: {}", e),
-                inner: None,
             }),
         };
 

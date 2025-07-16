@@ -18,19 +18,21 @@ pub enum AssetType {
     Model,
     Audio,
     Script,
+    LocResource,
     BrokenRef,
 }
 
 impl std::fmt::Display for AssetType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            AssetType::Unknown => write!(f, "Unknown"),
             AssetType::Prefab => write!(f, "Prefab"),
             AssetType::Scene => write!(f, "Scene"),
             AssetType::Texture => write!(f, "Texture"),
             AssetType::Model => write!(f, "Model"),
             AssetType::Audio => write!(f, "Audio"),
             AssetType::Script => write!(f, "Script"),
-            AssetType::Unknown => write!(f, "Unknown"),
+            AssetType::LocResource => write!(f, "Localization Resource"),
             AssetType::BrokenRef => write!(f, "Broken Reference"),
         }
     }
@@ -46,9 +48,7 @@ pub struct LocInfo {
 pub struct Asset {
     pub id: Id,
     pub asset_type: AssetType,
-    pub path: PathBuf,
-
-    pub loc: Option<LocInfo>,
+    pub path: Option<PathBuf>,
     pub dependencies: HashSet<Id>,
 
     #[serde(skip)]
@@ -63,18 +63,20 @@ impl Asset {
         }
     }
     pub fn new_with_path(id: Id, path: PathBuf) -> Self {
-        let mut a = Self::new(id);
-        a.path = path;
-        a.asset_type = match &a.path.extension().and_then(|s| s.to_str()) {
-            Some("prefab") => AssetType::Prefab,
-            Some("unity") | Some("scene") => AssetType::Scene,
-            Some("png") | Some("jpg") | Some("jpeg") => AssetType::Texture,
-            Some("fbx") | Some("obj") => AssetType::Model,
-            Some("wav") | Some("mp3") => AssetType::Audio,
-            Some("cs") | Some("js") => AssetType::Script,
-            _ => AssetType::Unknown,
-        };
-        a
+        Self {
+            id,
+            asset_type: match &path.extension().and_then(|s| s.to_str()) {
+                Some("prefab") => AssetType::Prefab,
+                Some("unity") | Some("scene") => AssetType::Scene,
+                Some("png") | Some("jpg") | Some("jpeg") => AssetType::Texture,
+                Some("fbx") | Some("obj") => AssetType::Model,
+                Some("wav") | Some("mp3") => AssetType::Audio,
+                Some("cs") | Some("js") => AssetType::Script,
+                _ => AssetType::Unknown,
+            },
+            path: Some(path),
+            ..Default::default()
+        }
     }
 
     pub fn bind<'a, 'b>(&'a self, db: &'b Database) -> BoundAsset<'a, 'b> {
@@ -83,24 +85,6 @@ impl Asset {
             db,
             indent: 0,
         }
-    }
-}
-
-impl std::fmt::Display for Asset {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Asset ID: {}", self.id)?;
-        writeln!(f, "Type: {}", self.asset_type)?;
-        writeln!(f, "Path: {}", self.path.display())?;
-        writeln!(f, "Loc Info: {:?}", self.loc)?;
-        writeln!(f, "Dependents ({}):", self.dependents.len())?;
-        for dep in &self.dependents {
-            writeln!(f, " - {}", dep)?;
-        }
-        writeln!(f, "Dependencies ({}):", self.dependencies.len())?;
-        for dep in &self.dependencies {
-            writeln!(f, " - {}", dep)?;
-        }
-        Ok(())
     }
 }
 
@@ -130,17 +114,23 @@ impl<'a, 'b> BoundAsset<'a, 'b> {
 
 impl<'a, 'b> std::fmt::Display for BoundAsset<'a, 'b> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let first_indent = format!("- {}", "  ".repeat(self.indent.saturating_sub(1)));
-        let indent_str = "  ".repeat(self.indent);
+        let first_indent = format!("- {}", "  ".repeat(self.indent));
+        let indent_str = "  ".repeat(self.indent + 1);
         writeln!(f, "{first_indent}Asset ID: {}", self.asset.id)?;
         writeln!(f, "{indent_str}Type: {}", self.asset.asset_type)?;
-        writeln!(f, "{indent_str}Path: {}", self.asset.path.display())?;
-        writeln!(f, "{indent_str}Loc Info: {:?}", self.asset.loc)?;
+        if let Some(path) = &self.asset.path {
+            writeln!(f, "{indent_str}Path: {}", path.display())?;
+        }
 
         let mut deps = vec![];
         for dep_id in self.asset.dependents.iter() {
             if let Some(dep_asset) = self.db.asset(dep_id) {
-                deps.push(dep_asset.path.display().to_string());
+                if let Some(path) = &dep_asset.path {
+                    deps.push(path.display().to_string());
+                }
+                else {
+                    deps.push(dep_asset.id.to_string());
+                }
             }
             else {
                 deps.push(dep_id.to_string());
@@ -156,7 +146,12 @@ impl<'a, 'b> std::fmt::Display for BoundAsset<'a, 'b> {
         let mut deps = vec![];
         for dep_id in self.asset.dependencies.iter() {
             if let Some(dep_asset) = self.db.asset(dep_id) {
-                deps.push(dep_asset.path.display().to_string());
+                if let Some(path) = &dep_asset.path {
+                    deps.push(path.display().to_string());
+                }
+                else {
+                    deps.push(dep_asset.id.to_string());
+                }
             }
             else {
                 deps.push(dep_id.to_string());

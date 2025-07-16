@@ -16,9 +16,9 @@ impl Database {
     pub fn add_root_str(&mut self, path: &str) -> Result<(), DatabaseError> {
         let abs_root = match fs::canonicalize(path) {
             Ok(p) => p,
-            Err(e) => return Err(DatabaseError {
+            Err(_) => return Err(DatabaseError {
                 message: format!("failed to canonicalize path '{path}'"),
-                inner: Some(Box::new(e)),
+                inner: None,
             }),
         };
         self.add_root(abs_root, &mut HashSet::new())
@@ -48,16 +48,16 @@ impl Database {
         if manifest_path.exists() {
             let reader = match read_file_no_bom(&manifest_path) {
                 Ok(r) => r,
-                Err(e) => return Err(DatabaseError {
+                Err(_) => return Err(DatabaseError {
                     message: format!("failed to read package file '{}'", manifest_path.display()),
-                    inner: Some(Box::new(e)),
+                    inner: None,
                 }),
             };
             let manifest: ManifestJson = match serde_json::from_reader(reader) {
                 Ok(m) => m,
-                Err(e) => return Err(DatabaseError {
+                Err(_) => return Err(DatabaseError {
                     message: format!("failed to parse manifest file '{}'", manifest_path.display()),
-                    inner: Some(Box::new(e)),
+                    inner: None,
                 }),
             };
 
@@ -87,16 +87,16 @@ impl Database {
         if package_path.exists() {
             let reader = match read_file_no_bom(&package_path) {
                 Ok(r) => r,
-                Err(e) => return Err(DatabaseError {
+                Err(_) => return Err(DatabaseError {
                     message: format!("failed to read package file '{}'", package_path.display()),
-                    inner: Some(Box::new(e)),
+                    inner: None,
                 }),
             };
             let package: PackageJson = match serde_json::from_reader(reader) {
                 Ok(p) => p,
-                Err(e) => return Err(DatabaseError {
+                Err(_) => return Err(DatabaseError {
                     message: format!("failed to parse package file '{}'", package_path.display()),
-                    inner: Some(Box::new(e)),
+                    inner: None,
                 }),
             };
 
@@ -126,9 +126,9 @@ impl Database {
         if lib_path.exists() {
             let dir = match fs::read_dir(&lib_path) {
                 Ok(d) => d,
-                Err(e) => return Err(DatabaseError {
+                Err(_) => return Err(DatabaseError {
                     message: format!("failed to read directory '{}'", lib_path.display()),
-                    inner: Some(Box::new(e)),
+                    inner: None,
                 }),
             };
             for pkg in dir {

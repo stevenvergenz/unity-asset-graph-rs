@@ -6,6 +6,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use crate::{
     asset::{Asset, AssetType},
+    parser::ParseError,
     id::Id,
 };
 
@@ -15,7 +16,7 @@ mod assets;
 #[derive(Debug)]
 pub struct DatabaseError {
     message: String,
-    inner: Option<Box<dyn std::error::Error>>,
+    inner: Option<ParseError>,
 }
 
 impl std::fmt::Display for DatabaseError {
@@ -103,7 +104,15 @@ impl Database {
     }
 
     pub fn asset_by_name(&self, name: &str) -> Option<&Asset> {
-        self.assets.values()
-            .find(|asset| asset.path.file_name().map_or(false, |f| f == name))
+        for asset in self.assets.values() {
+            if let Some(p) = asset.path.as_ref()
+                && let Some(file_name) = p.file_name()
+                && let Some(name_str) = file_name.to_str()
+                && name_str == name
+            {
+                return Some(asset);
+            }
+        }
+        None
     }
 }
