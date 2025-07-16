@@ -5,7 +5,9 @@ use clap::{
     arg
 };
 use std::{
-    collections::HashMap, error::Error, fs::File, io::Write
+    collections::HashMap,
+    fs::File,
+    io::Write,
 };
 use uuid::Uuid;
 use asset_graph_rs::{
@@ -38,10 +40,14 @@ enum CliCommand {
         #[arg(long)]
         name: Option<String>,
     },
-    FindOrphans {
+    FindUnused {
         #[arg(long)]
         id_type: Option<OrphanFilter>,
-    }
+    },
+    FindBrokenRefs {
+        #[arg(long)]
+        id_type: Option<OrphanFilter>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -74,9 +80,12 @@ fn main() {
         CliCommand::Info { id, name } => {
             info(&args.db_path, id, name);
         },
-        CliCommand::FindOrphans { id_type } => {
-            find_orphans(&args.db_path, id_type);
-        }
+        CliCommand::FindUnused { id_type } => {
+            find_unused(&args.db_path, id_type);
+        },
+        CliCommand::FindBrokenRefs { id_type } => {
+            find_broken_refs(&args.db_path, id_type);
+        },
     }
 }
 
@@ -170,7 +179,7 @@ fn info(db_path: &str, id: Option<String>, name: Option<String>) {
     
 }
 
-fn find_orphans(db_path: &str, id_type: Option<OrphanFilter>) {
+fn find_unused(db_path: &str, id_type: Option<OrphanFilter>) {
     let file = File::open(&db_path)
         .expect(format!("Failed to open {db_path}").as_str());
     let mut db: Database = match rmp_serde::from_read(file) {
@@ -205,15 +214,51 @@ fn find_orphans(db_path: &str, id_type: Option<OrphanFilter>) {
         }
     }
 
-    println!("Orphaned assets ({}):", orphans.len());
+    println!("Unused assets ({}):", orphans.len());
     for asset in orphans.values() {
-        println!("{}", asset.bind(&db));
+        println!("{}", asset.bind(&db).indent());
     }
+    if orphans.is_empty() {
+        println!("No unused assets found.");
+    }
+}
+
+fn find_broken_refs(db_path: &str, id_type: Option<OrphanFilter>) {
+    let file = File::open(&db_path)
+        .expect(format!("Failed to open {db_path}").as_str());
+    let mut db: Database = match rmp_serde::from_read(file) {
+        Ok(db) => {
+            println!("Loaded database from {}", db_path);
+            db
+        },
+        Err(_) => {
+            panic!("Error reading database from {}", db_path);
+        }
+    };
+    
+    db.populate_reverse_dependencies();
+
+    let mut broken_refs = HashMap::new();
+    for asset in db.assets() {
+        if let Some(id_type) = id_type {
+            if id_type == OrphanFilter::Guid && let Id::Loc(_) = asset.id {
+                continue;
+            }
+            if id_type == OrphanFilter::Loc && let Id::Guid(_) = asset.id {
+                continue;
+            }
+        }
+
+        if asset.asset_type == AssetType::BrokenRef {
+            broken_refs.insert(asset.id.clone(), asset);
+        }
+    }
+
     println!("\nBroken references ({}):", broken_refs.len());
     for asset in broken_refs.values() {
-        println!("{}", asset.bind(&db));
+        println!("{}", asset.bind(&db).indent());
     }
-    if orphans.is_empty() && broken_refs.is_empty() {
-        println!("No orphaned assets or broken references found.");
+    if broken_refs.is_empty() {
+        println!("No broken references found.");
     }
 }

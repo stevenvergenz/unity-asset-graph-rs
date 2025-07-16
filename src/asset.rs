@@ -19,6 +19,7 @@ pub enum AssetType {
     Audio,
     Script,
     LocResource,
+    LocString,
     BrokenRef,
 }
 
@@ -33,15 +34,10 @@ impl std::fmt::Display for AssetType {
             AssetType::Audio => write!(f, "Audio"),
             AssetType::Script => write!(f, "Script"),
             AssetType::LocResource => write!(f, "Localization Resource"),
+            AssetType::LocString => write!(f, "Localized String"),
             AssetType::BrokenRef => write!(f, "Broken Reference"),
         }
     }
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct LocInfo {
-    pub file_id: String,
-    pub name_bases: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize, Default)]
@@ -114,7 +110,7 @@ impl<'a, 'b> BoundAsset<'a, 'b> {
 
 impl<'a, 'b> std::fmt::Display for BoundAsset<'a, 'b> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let first_indent = format!("- {}", "  ".repeat(self.indent));
+        let first_indent = format!("{}- ", "  ".repeat(self.indent));
         let indent_str = "  ".repeat(self.indent + 1);
         writeln!(f, "{first_indent}Asset ID: {}", self.asset.id)?;
         writeln!(f, "{indent_str}Type: {}", self.asset.asset_type)?;

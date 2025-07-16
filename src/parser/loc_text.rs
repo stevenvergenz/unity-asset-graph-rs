@@ -3,7 +3,7 @@ use regex::Regex;
 use crate::id::Id;
 
 static KEY_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^    key: (.*)$").expect("Failed to compile key regex")
+    Regex::new(r"^    key: (.+)$").expect("Failed to compile key regex")
 });
 
 #[derive(Debug, Clone)]

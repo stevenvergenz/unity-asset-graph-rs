@@ -10,6 +10,7 @@ use crate::{
     id::Id,
     parser::{
         loc_text::LocStringParser,
+        loc_override::LocOverrideParser,
         ParseError,
     },
 };
@@ -36,6 +37,7 @@ pub fn parse_unity(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<V
 
 fn parse_unity_reader(reader: &mut dyn BufRead, asset: &mut Asset) -> Result<Vec<Asset>, ParseError> {
     let mut loctext_parser = LocStringParser::Start;
+    let mut locoverride_parser = LocOverrideParser::Start;
 
     for line in reader.lines() {
         let line = match line {
@@ -49,6 +51,12 @@ fn parse_unity_reader(reader: &mut dyn BufRead, asset: &mut Asset) -> Result<Vec
         if let LocStringParser::LocStringKey(id) = loctext_parser {
             asset.dependencies.insert(id);
             loctext_parser = LocStringParser::Start;
+        }
+
+        locoverride_parser = locoverride_parser.update(&line);
+        if let LocOverrideParser::PropertyValue(value) = locoverride_parser {
+            asset.dependencies.insert(Id::Loc(value));
+            locoverride_parser = LocOverrideParser::Modifications;
         }
 
         if let Some(captures) = ID_REGEX.captures(&line)
@@ -98,6 +106,34 @@ MonoBehaviour:
   OnTextChanged:
     m_PersistentCalls:
       m_Calls: []
+--- !u!1001 &161518669942422494
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 215340965743735207}
+    m_Modifications:
+    - target: {fileID: 8229847291080121086, guid: d7698b5f08e39cc4aaf5e62e6972733b,
+        type: 3}
+      propertyPath: localizedString.key
+      value: events_host_panel_hand_raised_label
+      objectReference: {fileID: 0}
+    - target: {fileID: 8229847291080121086, guid: d7698b5f08e39cc4aaf5e62e6972733b,
+        type: 3}
+      propertyPath: localizedString.fallbackValue
+      value: Hand raised
+      objectReference: {fileID: 0}
+    - target: {fileID: 8229847291080121086, guid: d7698b5f08e39cc4aaf5e62e6972733b,
+        type: 3}
+      propertyPath: localizedString.key
+      value: events_host_panel_broadcasting_label
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: d7698b5f08e39cc4aaf5e62e6972733b, type: 3}
 "#;
 
     #[test]
@@ -110,5 +146,7 @@ MonoBehaviour:
         assert!(asset.dependencies.contains(&Id::Guid(Uuid::parse_str("7c77678171dd7a24ead5c598179e6378").unwrap())));
         assert!(asset.dependencies.contains(&Id::Guid(Uuid::parse_str("05503c2c5cf7b7f45bec1113802f99a0").unwrap())));
         assert!(asset.dependencies.contains(&Id::Loc("people_panel_people_label".into())));
+        assert!(asset.dependencies.contains(&Id::Loc("events_host_panel_hand_raised_label".into())));
+        assert!(asset.dependencies.contains(&Id::Loc("events_host_panel_broadcasting_label".into())));
     }
 }

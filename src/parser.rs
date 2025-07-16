@@ -8,6 +8,7 @@ pub mod package_json;
 mod unity;
 mod loc_text;
 mod loc_resource;
+mod loc_override;
 mod csharp;
 
 #[derive(Debug)]

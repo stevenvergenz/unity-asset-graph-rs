@@ -4,7 +4,7 @@ use std::{
     io::BufRead,
 };
 use crate::{
-    asset::Asset,
+    asset::{Asset, AssetType},
     id::Id,
     parser::ParseError,
     util,
@@ -39,6 +39,7 @@ fn parse_loc_resource_reader(reader: &mut dyn BufRead, asset: &mut Asset) -> Res
     for key in locstrings.keys() {
         let asset = Asset {
             id: Id::Loc(key.clone()),
+            asset_type: AssetType::LocString,
             dependencies: HashSet::from([asset.id.clone()]),
             ..Default::default()
         };

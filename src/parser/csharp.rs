@@ -11,7 +11,7 @@ use crate::{
 };
 
 static LOC_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"LocStringCache.Get\("([^"]+)"\)"#).expect("Failed to compile locString regex")
+    Regex::new(r#"LocStringCache.Get\("([^"]+)""#).expect("Failed to compile locString regex")
 });
 
 pub fn parse_csharp(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
@@ -39,10 +39,11 @@ fn parse_csharp_reader(reader: &mut dyn BufRead, asset: &mut Asset) -> Result<Ve
             }),
         };
 
-        if let Some(captures) = LOC_REGEX.captures(&line)
-            && let Some(loc_key) = captures.get(1)
-        {
-            asset.dependencies.insert(Id::Loc(loc_key.as_str().to_string()));
+        for capture in LOC_REGEX.captures_iter(&line) {
+            if let Some(loc) = capture.get(1) {
+                let loc_id = loc.as_str().to_string();
+                asset.dependencies.insert(Id::Loc(loc_id.clone()));
+            }
         }
     }
 
