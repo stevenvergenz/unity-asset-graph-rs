@@ -21,35 +21,40 @@ use asset_graph_rs::{
 struct CliArgs {
     #[command(subcommand)]
     command: CliCommand,
-    #[arg(long, short = 'd', default_value = "db.bin")]
+    #[arg(long, short = 'd', default_value = "db.bin", help = "Path to the database file (default: db.bin)")]
     db_path: String,
 }
 
 #[derive(Subcommand)]
 enum CliCommand {
+    #[command(about = "Find assets in a Unity project directory and create a database file")]
     FindAssets {
-        #[arg(long, short = 'p')]
+        #[arg(long, short = 'p', help = "Path to the directory containing a Unity project")]
         root_path: String,
-        #[arg(long, short = 'r', default_value = None)]
+        #[arg(long, short = 'r', default_value = None, help = "If supplied, make paths in the database relative to this path")]
         relative_to: Option<String>,
     },
+    #[command(about = "Scan all assets in the database to identify their dependencies")]
     ResolveAssets,
+    #[command(about = "Get information about a specific asset by ID or name")]
     Info {
-        #[arg(long)]
+        #[arg(long, help = "ID of the asset")]
         id: Option<String>,
-        #[arg(long)]
+        #[arg(long, help = "Name of the asset")]
         name: Option<String>,
     },
+    #[command(about = "Find unused assets in the database")]
     FindUnused {
-        #[arg(long)]
+        #[arg(long, help = "Filter by ID type: 'guid' or 'loc'")]
         id_type: Option<OrphanFilter>,
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value = "false", help = "If true, only print IDs of unused assets")]
         id_only: bool,
     },
+    #[command(about = "Find broken references in the database")]
     FindBrokenRefs {
-        #[arg(long)]
+        #[arg(long, help = "Filter by ID type: 'guid' or 'loc'")]
         id_type: Option<OrphanFilter>,
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value = "false", help = "If true, only print IDs of broken references")]
         id_only: bool,
     },
 }

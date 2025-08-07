@@ -4,8 +4,22 @@ Build a database from a Unity project's assets and packages, and query it.
 
 ## Usage
 
+Before 
 ```bash
-cargo run -- --help
+$ cargo run -- --help
+Usage: unity-asset-graph-rs.exe [OPTIONS] <COMMAND>
+
+Commands:
+  find-assets       Find assets in a Unity project directory and create a database file
+  resolve-assets    Scan all assets in the database to identify their dependencies
+  info              Get information about a specific asset by ID or name
+  find-unused       Find unused assets in the database
+  find-broken-refs  Find broken references in the database
+  help              Print this message or the help of the given subcommand(s)
+
+Options:
+  -d, --db-path <DB_PATH>  Path to the database file (default: db.bin) [default: db.bin]
+  -h, --help               Print help
 ```
 
 ## Building
