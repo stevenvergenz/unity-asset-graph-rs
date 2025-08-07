@@ -1,3 +1,13 @@
 # asset-graph-rs
 
-Crawl a Unity project and its dependencies for every asset in the database, and generate a graph of their dependencies.
+Build a database from a Unity project's assets and packages, and query it.
+
+## Usage
+
+```bash
+cargo run -- --help
+```
+
+## Building
+
+To build the project, you'll need a [Rust compiler](https://www.rust-lang.org/tools/install) installed.
