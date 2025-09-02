@@ -42,6 +42,8 @@ enum CliCommand {
         id: Option<String>,
         #[arg(long, help = "Name of the asset")]
         name: Option<String>,
+        #[arg(long, help = "Show the list of detected package roots")]
+        roots: bool,
     },
     #[command(about = "Find unused assets in the database")]
     FindUnused {
@@ -86,8 +88,8 @@ fn main() {
         CliCommand::ResolveAssets => {
             resolve_assets(args.db_path);
         },
-        CliCommand::Info { id, name } => {
-            info(&args.db_path, id, name);
+        CliCommand::Info { id, name, roots } => {
+            info(&args.db_path, id, name, roots);
         },
         CliCommand::FindUnused { id_type, id_only } => {
             find_unused(&args.db_path, id_type, id_only);
@@ -144,7 +146,7 @@ fn resolve_assets(db_path: String) {
         .expect(format!("Failed to write database to {db_path}").as_str());
 }
 
-fn info(db_path: &str, id: Option<String>, name: Option<String>) {
+fn info(db_path: &str, id: Option<String>, name: Option<String>, roots: bool) {
     let file = File::open(&db_path)
         .expect(format!("Failed to open {db_path}").as_str());
     let mut db: Database = match rmp_serde::from_read(file) {
@@ -158,7 +160,14 @@ fn info(db_path: &str, id: Option<String>, name: Option<String>) {
     };
     db.populate_reverse_dependencies();
 
-    if let Some(id) = id.as_ref() {
+    if roots {
+        let mut sorted_roots: Vec<String> = db.roots().iter().map(|r| r.display().to_string()).collect();
+        sorted_roots.sort();
+        for r in &sorted_roots {
+            println!("- {r}");
+        }
+    }
+    else if let Some(id) = id.as_ref() {
         let asset = if let Ok(id) = Uuid::parse_str(&id) {
             db.asset(&Id::Guid(id.clone()))
         }
