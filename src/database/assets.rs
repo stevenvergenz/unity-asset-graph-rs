@@ -1,23 +1,17 @@
 use std::{
-    io::BufRead,
+    mem,
     path::PathBuf,
-    sync::{LazyLock, Arc, Mutex, mpsc},
+    sync::{Arc, Mutex, mpsc},
     thread,
     time::Duration,
 };
-use regex::Regex;
-use uuid::Uuid;
 use crate::{
-    asset::{Asset, AssetType},
+    asset::Asset,
+    asset_type::AssetType,
     database::{Database, DatabaseError},
-    id::Id,
     parser,
-    util::read_file_no_bom
+    util,
 };
-
-static META_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^guid: ([0-9a-f]{32})$").expect("Failed to compile meta id regex")
-});
 
 const THREADS: usize = 4;
 
@@ -123,12 +117,12 @@ impl Database {
                         eprintln!("Error sending asset: {}", e);
                     }
                 },
-                Ok(None) => { },
-                Err(e) => {
+                Err(e) if !path.is_dir() => {
                     if let Err(e) = err_tx.send(e) {
                         eprintln!("Error sending error: {}", e);
                     }
-                }
+                },
+                _ => { },
             }
 
             if path.is_dir() {
@@ -187,32 +181,12 @@ impl Database {
     }
 
     fn find_assets_file(path: &PathBuf, relative_to: Option<&PathBuf>) -> Result<Option<Asset>, DatabaseError> {
-        let meta_path = path.with_file_name(format!("{}.meta", path.file_name().unwrap().to_str().unwrap()));
-        if !meta_path.exists() {
-            return Ok(None);
-        }
-
-        // read the meta file
-        let meta_reader = match read_file_no_bom(&meta_path) {
-            Ok(r) => r,
-            Err(_) => return Err(DatabaseError {
-                message: format!("failed to read meta file '{}'", meta_path.display()),
-                inner: None,
-            }),
-        };
-
-        let mut asset_guid = None;
-        for line in meta_reader.lines() {
-            if let Ok(line) = line
-                && let Some(captures) = META_REGEX.captures(&line)
-                && let Some(m) = captures.get(1)
-                && let Ok(uuid) = Uuid::parse_str(m.as_str()){
-                // Extract the GUID from the meta file
-                asset_guid = Some(uuid);
-                break;
+        let asset_guid = util::get_id_of_asset(path).map_err(|p| {
+            DatabaseError {
+                message: format!("Failed to read ID of asset '{}'", path.display()),
+                inner: Some(p),
             }
-        }
-        let asset_guid = asset_guid.expect("Meta file must contain a valid GUID");
+        })?;
 
         let rel_path = if let Some(rel_to) = relative_to.as_ref()
             && let Ok(rel) = path.strip_prefix(rel_to) {
@@ -222,36 +196,40 @@ impl Database {
             path.clone()
         };
 
-        let mut asset = Asset::new_with_path(Id::Guid(asset_guid), rel_path);
-        if path.is_dir() {
-            asset.asset_type = AssetType::Directory;
-        }
+        let asset = Asset {
+            id: asset_guid,
+            asset_type: if path.is_dir() {
+                AssetType::Directory
+            }
+            else {
+                (&rel_path).into()
+            },
+            path: Some(rel_path),
+            ..Default::default()
+        };
+        
         Ok(Some(asset))
     }
 
     pub fn resolve_assets(&mut self) -> Result<(), DatabaseError> {
-        let paths: Arc<Mutex<Vec<(Id, PathBuf)>>> = Arc::new(Mutex::new(
-            self.assets.values().filter_map(|a| {
-                if let Id::Guid(_) = a.id && let Some(path) = a.path.as_ref(){
-                    Some((a.id.clone(), path.clone()))
-                }
-                else {
-                    None
-                }
-            })
-            .collect()
-        ));
+        let asset_count = self.assets.len();
+        let assets: Arc<Mutex<Vec<Asset>>> = Arc::new(Mutex::new(
+            mem::take(&mut self.assets)
+            .into_values()
+            .filter(|a| a.path.is_some())
+            .collect()));
+
         let (tx, rx) = mpsc::channel();
         let (err_tx, err_rx) = mpsc::channel();
         let mut handles = vec![];
 
         for _ in 0..THREADS {
-            let paths = Arc::clone(&paths);
+            let assets = Arc::clone(&assets);
             let tx = tx.clone();
             let err_tx = err_tx.clone();
             let relative_to = self.relative_to.clone();
             handles.push(thread::spawn(move || {
-                Self::resolve_assets_job(paths, relative_to.as_ref(), tx, err_tx);
+                Self::resolve_assets_job(assets, relative_to.as_ref(), tx, err_tx);
             }));
         }
 
@@ -259,8 +237,8 @@ impl Database {
         loop {
             while let Ok(asset) = rx.try_recv() {
                 self.assets.insert(asset.id.clone(), asset);
-                let pct = (progress as f64 / self.assets.len() as f64) * 100.0;
-                print!("\rResolving assets: {:.2}% ({}/{})", pct, progress, self.assets.len());
+                let pct = (progress as f64 / asset_count as f64) * 100.0;
+                print!("\rResolving assets: {:.2}% ({}/{})", pct, progress, asset_count);
                 progress += 1;
             }
 
@@ -283,17 +261,17 @@ impl Database {
     }
 
     fn resolve_assets_job(
-        paths: Arc<Mutex<Vec<(Id, PathBuf)>>>,
+        assets: Arc<Mutex<Vec<Asset>>>,
         relative_to: Option<&PathBuf>,
         tx: mpsc::Sender<Asset>,
         err_tx: mpsc::Sender<DatabaseError>,
     ) {
         let mut retries = 0usize;
         while retries < 3 {
-            let (id, path) = match paths.lock().unwrap().pop() {
-                Some((id, p)) => {
+            let mut asset = match assets.lock().unwrap().pop() {
+                Some(a) => {
                     retries = 0;
-                    (id, p)
+                    a
                 },
                 None => {
                     retries += 1;
@@ -302,7 +280,6 @@ impl Database {
                 }
             };
 
-            let mut asset = Asset::new_with_path(id.clone(), path.clone());
             match parser::parse(&mut asset, relative_to) {
                 Ok(subs) => {
                     if let Err(e) = tx.send(asset) {
@@ -316,7 +293,7 @@ impl Database {
                 }
                 Err(e) => {
                     let err = DatabaseError {
-                        message: format!("Error parsing asset '{}': {}", path.display(), e),
+                        message: format!("Error parsing asset '{}': {}", asset.path.unwrap().display(), e),
                         inner: Some(e),
                     };
                     if let Err(e) = err_tx.send(err) {

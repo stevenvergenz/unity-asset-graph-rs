@@ -14,7 +14,7 @@ static LOC_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"LocStringCache.Get\("([^"]+)""#).expect("Failed to compile locString regex")
 });
 
-pub fn parse_csharp(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
+pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
     let path = match relative_to {
         Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
         None => asset.path.as_ref().unwrap(),

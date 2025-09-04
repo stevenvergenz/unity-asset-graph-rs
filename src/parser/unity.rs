@@ -19,7 +19,7 @@ static ID_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b([0-9a-f]{32})\b").expect("Failed to compile ID regex")
 });
 
-pub fn parse_unity(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
+pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
     let path = match relative_to {
         Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
         None => asset.path.as_ref().unwrap(),
@@ -75,6 +75,7 @@ mod test {
     use std::io::BufReader;
 
     use super::*;
+    use crate::asset_type::AssetType;
 
     const PREFAB: &str = r#"%YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
@@ -139,7 +140,12 @@ PrefabInstance:
     #[test]
     fn test_parse_unity_reader() {
         let mut reader = BufReader::new(PREFAB.as_bytes());
-        let mut asset = Asset::new_with_path(Id::Guid(Uuid::nil()), PathBuf::from("test.prefab"));
+        let mut asset = Asset {
+            id: Id::Guid(Uuid::nil()),
+            asset_type: AssetType::Prefab,
+            path: Some(PathBuf::from("test.prefab")),
+            ..Default::default()
+        };
         let result = parse_unity_reader(&mut reader, &mut asset);
 
         assert!(result.is_ok());

@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use crate::{
-    asset::{Asset, AssetType},
+    asset::Asset,
+    asset_type::AssetType,
 };
 
 pub mod manifest_json;
@@ -10,10 +11,19 @@ mod loc_text;
 mod loc_resource;
 mod loc_override;
 mod csharp;
+mod directory;
 
 #[derive(Debug)]
 pub struct ParseError {
     message: String,
+}
+
+impl ParseError {
+    pub fn new(message: String) -> Self {
+        Self {
+            message,
+        }
+    }
 }
 
 impl std::fmt::Display for ParseError {
@@ -25,27 +35,25 @@ impl std::fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
-    let path = match asset.path {
-        Some(ref p) => p,
-        None => return Ok(vec![]),
-    };
+    if asset.path.is_none() {
+        return Ok(vec![]);
+    }
 
-    match path.extension().and_then(|s| s.to_str()) {
-        Some("prefab") | Some("unity") | Some("scene") | Some("asset") => {
-            unity::parse_unity(asset, relative_to)
-        },
-        Some("cs") => {
-            csharp::parse_csharp(asset, relative_to)
-        },
-        _ => {
-            let name = path.file_name().and_then(|s| s.to_str()).unwrap();
-            if name.ends_with("Resource.en-us.json") {
-                asset.asset_type = AssetType::LocResource;
-                loc_resource::parse_loc_resource(asset, relative_to)
-            }
-            else {
-                Ok(vec![]) // Not a known file type
-            }
-        }
+    if asset.asset_type.is_unity() {
+        unity::parse(asset, relative_to)
+    }
+    else if let AssetType::Script = asset.asset_type {
+        csharp::parse(asset, relative_to)
+    }
+    else if let Some(filename) = asset.path.as_ref().unwrap().file_name().and_then(|f| f.to_str())
+        && filename.ends_with("Resource.en-us.json") {
+        asset.asset_type = AssetType::LocResource;
+        loc_resource::parse(asset, relative_to)
+    }
+    else if let AssetType::Directory = asset.asset_type {
+        directory::parse(asset, relative_to)
+    }
+    else {
+        Ok(vec![])
     }
 }

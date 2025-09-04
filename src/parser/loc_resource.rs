@@ -4,13 +4,14 @@ use std::{
     io::BufRead,
 };
 use crate::{
-    asset::{Asset, AssetType},
+    asset::Asset,
+    asset_type::AssetType,
     id::Id,
     parser::ParseError,
     util,
 };
 
-pub fn parse_loc_resource(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
+pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
     let path = match relative_to {
         Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
         None => asset.path.as_ref().unwrap(),

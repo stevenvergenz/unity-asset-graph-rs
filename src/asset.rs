@@ -4,43 +4,10 @@ use std::{
 };
 use serde::{Deserialize, Serialize};
 use crate::{
+    asset_type::AssetType,
     id::Id,
     database::Database,
 };
-
-#[derive(Deserialize, Serialize, PartialEq, Eq, Default)]
-pub enum AssetType {
-    #[default]
-    Unknown,
-    Directory,
-    Prefab,
-    Scene,
-    Texture,
-    Model,
-    Audio,
-    Script,
-    LocResource,
-    LocString,
-    BrokenRef,
-}
-
-impl std::fmt::Display for AssetType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AssetType::Unknown => write!(f, "Unknown"),
-            AssetType::Directory => write!(f, "Directory"),
-            AssetType::Prefab => write!(f, "Prefab"),
-            AssetType::Scene => write!(f, "Scene"),
-            AssetType::Texture => write!(f, "Texture"),
-            AssetType::Model => write!(f, "Model"),
-            AssetType::Audio => write!(f, "Audio"),
-            AssetType::Script => write!(f, "Script"),
-            AssetType::LocResource => write!(f, "Localization Resource"),
-            AssetType::LocString => write!(f, "Localized String"),
-            AssetType::BrokenRef => write!(f, "Broken Reference"),
-        }
-    }
-}
 
 #[derive(Deserialize, Serialize, Default)]
 pub struct Asset {
@@ -54,36 +21,6 @@ pub struct Asset {
 }
 
 impl Asset {
-    pub fn new(id: Id) -> Self {
-        Self {
-            id,
-            ..Default::default()
-        }
-    }
-    pub fn new_with_path(id: Id, path: PathBuf) -> Self {
-        let asset_type = if path.is_dir() {
-            AssetType::Directory
-        }
-        else {
-            match &path.extension().and_then(|s| s.to_str()) {
-                Some("prefab") => AssetType::Prefab,
-                Some("unity") | Some("scene") => AssetType::Scene,
-                Some("png") | Some("jpg") | Some("jpeg") => AssetType::Texture,
-                Some("fbx") | Some("obj") => AssetType::Model,
-                Some("wav") | Some("mp3") => AssetType::Audio,
-                Some("cs") | Some("js") => AssetType::Script,
-                _ => AssetType::Unknown,
-            }
-        };
-
-        Self {
-            id,
-            asset_type,
-            path: Some(path),
-            ..Default::default()
-        }
-    }
-
     pub fn bind<'a, 'b>(&'a self, db: &'b Database) -> BoundAsset<'a, 'b> {
         BoundAsset {
             asset: self,

@@ -5,7 +5,8 @@ use std::{
 };
 use serde::{Deserialize, Serialize};
 use crate::{
-    asset::{Asset, AssetType},
+    asset::Asset,
+    asset_type::AssetType,
     parser::ParseError,
     id::Id,
 };
@@ -75,8 +76,11 @@ impl Database {
                 let (id, mut dep) = match self.assets.remove_entry(dep_id) {
                     Some(e) => e,
                     None => {
-                        let mut a = Asset::new(dep_id.clone());
-                        a.asset_type = AssetType::BrokenRef;
+                        let a = Asset {
+                            id: dep_id.clone(),
+                            asset_type: AssetType::BrokenRef,
+                            ..Default::default()
+                        };
                         (dep_id.clone(), a)
                     },
                 };

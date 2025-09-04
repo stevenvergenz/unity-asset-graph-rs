@@ -10,12 +10,7 @@ use std::{
     io::Write,
 };
 use uuid::Uuid;
-use asset_graph_rs::{
-    asset::AssetType,
-    database::Database,
-    id::Id,
-    version::DatabaseFile,
-};
+use asset_graph_rs::{ AssetType, Database, DatabaseFile, Id };
 
 #[derive(Parser)]
 struct CliArgs {
@@ -159,12 +154,6 @@ fn info(db_path: &str, id: Option<String>, name: Option<String>, roots: bool) {
         }
     };
     db.populate_reverse_dependencies();
-
-    for a in db.assets() {
-        if let Some(path) = a.path.as_ref() {
-            println!("{} {}", a.asset_type, path.display());
-        }
-    }
 
     if roots {
         let mut sorted_roots: Vec<String> = db.roots().iter().map(|r| r.display().to_string()).collect();
