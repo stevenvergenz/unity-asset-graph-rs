@@ -8,7 +8,7 @@ use std::{
 use regex::Regex;
 use uuid::Uuid;
 use crate::{
-    asset::Asset,
+    asset::{Asset, AssetType},
     database::{Database, DatabaseError},
     id::Id,
     parser,
@@ -69,6 +69,8 @@ impl Database {
                 eprintln!("Error joining thread: {:?}", e);
             }
         });
+
+        self.resolve_assets()?;
 
         println!("\nFound {} assets in {} roots", self.assets.len(), self.roots.len());
         Ok(())
@@ -220,7 +222,11 @@ impl Database {
             path.clone()
         };
 
-        Ok(Some(Asset::new_with_path(Id::Guid(asset_guid), rel_path)))
+        let mut asset = Asset::new_with_path(Id::Guid(asset_guid), rel_path);
+        if path.is_dir() {
+            asset.asset_type = AssetType::Directory;
+        }
+        Ok(Some(asset))
     }
 
     pub fn resolve_assets(&mut self) -> Result<(), DatabaseError> {
@@ -273,8 +279,6 @@ impl Database {
             }
             thread::sleep(Duration::from_millis(100));
         }
-
-        println!("\nFound {} assets in {} roots", self.assets.len(), self.roots.len());
         Ok(())
     }
 
