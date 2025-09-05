@@ -45,7 +45,7 @@ pub fn get_id_of_asset(path: &Path) -> Result<Id, ParseError> {
 
     let meta_reader = read_file_no_bom(&meta_path)
         .map_err(|e| {
-            ParseError::new(format!("Failed to read meta file {}: {e}", meta_path.display()))
+            ParseError::new(&meta_path, format!("Failed to read meta file: {e}"))
         })?;
 
     for line in meta_reader.lines() {
@@ -57,5 +57,5 @@ pub fn get_id_of_asset(path: &Path) -> Result<Id, ParseError> {
             return Ok(Id::Guid(uuid));
         }
     }
-    Err(ParseError::new("No uuid found in meta file".into()))
+    Err(ParseError::new(&path, "No uuid found in meta file".into()))
 }

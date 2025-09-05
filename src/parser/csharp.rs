@@ -22,21 +22,26 @@ pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Ass
 
     let mut reader = match crate::util::read_file_no_bom(path) {
         Ok(file) => file,
-        Err(e) => return Err(ParseError {
-            message: format!("Failed to read prefab file: {}", e),
-        }),
+        Err(e) => return Err(ParseError::new(path, format!("Failed to read prefab file: {}", e))),
     };
 
-    parse_csharp_reader(&mut reader, asset)
+    parse_reader(&mut reader, asset, relative_to)
 }
 
-fn parse_csharp_reader(reader: &mut dyn BufRead, asset: &mut Asset) -> Result<Vec<Asset>, ParseError> {
+fn parse_reader(
+    reader: &mut dyn BufRead, 
+    asset: &mut Asset, 
+    relative_to: Option<&PathBuf>,
+) -> Result<Vec<Asset>, ParseError> {
+    let path = match relative_to {
+        Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
+        None => asset.path.as_ref().unwrap(),
+    };
+    
     for line in reader.lines() {
         let line = match line {
             Ok(l) => l,
-            Err(e) => return Err(ParseError {
-                message: format!("Failed to read line: {}", e),
-            }),
+            Err(e) => return Err(ParseError::new(path, format!("Failed to read line: {}", e))),
         };
 
         for capture in LOC_REGEX.captures_iter(&line) {

@@ -8,11 +8,12 @@ use uuid::Uuid;
 use crate::{
     asset::Asset,
     id::Id,
-    parser::{
-        loc_text::LocStringParser,
-        loc_override::LocOverrideParser,
-        ParseError,
-    },
+    parser::ParseError,
+};
+#[cfg(feature = "locstring")]
+use crate::parser::{
+    loc_text::LocStringParser,
+    loc_override::LocOverrideParser,
 };
 
 static ID_REGEX: LazyLock<Regex> = LazyLock::new(|| {
@@ -27,36 +28,47 @@ pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Ass
 
     let mut reader = match crate::util::read_file_no_bom(path) {
         Ok(file) => file,
-        Err(e) => return Err(ParseError {
-            message: format!("Failed to read prefab file: {}", e),
-        }),
+        Err(e) => return Err(ParseError::new(&path, format!("Failed to read prefab file: {}", e))),
     };
 
-    parse_unity_reader(&mut reader, asset)
+    parse_reader(&mut reader, asset, relative_to)
 }
 
-fn parse_unity_reader(reader: &mut dyn BufRead, asset: &mut Asset) -> Result<Vec<Asset>, ParseError> {
-    let mut loctext_parser = LocStringParser::Start;
-    let mut locoverride_parser = LocOverrideParser::Start;
+fn parse_reader(
+    reader: &mut dyn BufRead, 
+    asset: &mut Asset, 
+    relative_to: Option<&PathBuf>,
+) -> Result<Vec<Asset>, ParseError> {
+    let path = match relative_to {
+        Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
+        None => asset.path.as_ref().unwrap(),
+    };
+
+    #[cfg(feature = "locstring")]
+    {
+        let mut loctext_parser = LocStringParser::Start;
+        let mut locoverride_parser = LocOverrideParser::Start;
+    }
 
     for line in reader.lines() {
         let line = match line {
             Ok(l) => l,
-            Err(e) => return Err(ParseError {
-                message: format!("Failed to read line: {}", e),
-            }),
+            Err(e) => return Err(ParseError::new(path, format!("Failed to read line: {}", e))),
         };
 
-        loctext_parser = loctext_parser.update(&line);
-        if let LocStringParser::LocStringKey(id) = loctext_parser {
-            asset.dependencies.insert(id);
-            loctext_parser = LocStringParser::Start;
-        }
-
-        locoverride_parser = locoverride_parser.update(&line);
-        if let LocOverrideParser::PropertyValue(value) = locoverride_parser {
-            asset.dependencies.insert(Id::Loc(value));
-            locoverride_parser = LocOverrideParser::Modifications;
+        #[cfg(feature = "locstring")]
+        {
+            loctext_parser = loctext_parser.update(&line);
+            if let LocStringParser::LocStringKey(id) = loctext_parser {
+                asset.dependencies.insert(id);
+                loctext_parser = LocStringParser::Start;
+            }
+            
+            locoverride_parser = locoverride_parser.update(&line);
+            if let LocOverrideParser::PropertyValue(value) = locoverride_parser {
+                asset.dependencies.insert(Id::Loc(value));
+                locoverride_parser = LocOverrideParser::Modifications;
+            }
         }
 
         if let Some(captures) = ID_REGEX.captures(&line)
@@ -146,7 +158,7 @@ PrefabInstance:
             path: Some(PathBuf::from("test.prefab")),
             ..Default::default()
         };
-        let result = parse_unity_reader(&mut reader, &mut asset);
+        let result = parse_reader(&mut reader, &mut asset, None);
 
         assert!(result.is_ok());
         assert!(asset.dependencies.contains(&Id::Guid(Uuid::parse_str("7c77678171dd7a24ead5c598179e6378").unwrap())));

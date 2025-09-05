@@ -9,7 +9,7 @@ use crate::{
     asset::Asset,
     asset_type::AssetType,
     database::{Database, DatabaseError},
-    parser,
+    parser::{self, ParseError},
     util,
 };
 
@@ -44,11 +44,13 @@ impl Database {
 
             let mut first = true;
             while let Ok(e) = err_rx.try_recv() {
-                if first {
-                    println!();
-                    first = false;
+                if let Some(&ParseError { ref path, .. }) = e.inner.as_ref() && !self.roots.contains(path) {
+                    if first {
+                        eprintln!();
+                        first = false;
+                    }
+                    eprintln!("Error finding asset: {}", e);
                 }
-                eprintln!("Error finding asset: {}", e);
             }
 
             if handles.iter().all(|h| h.is_finished()) {
@@ -117,7 +119,7 @@ impl Database {
                         eprintln!("Error sending asset: {}", e);
                     }
                 },
-                Err(e) if !path.is_dir() => {
+                Err(e) => {
                     if let Err(e) = err_tx.send(e) {
                         eprintln!("Error sending error: {}", e);
                     }
@@ -181,12 +183,10 @@ impl Database {
     }
 
     fn find_assets_file(path: &PathBuf, relative_to: Option<&PathBuf>) -> Result<Option<Asset>, DatabaseError> {
-        let asset_guid = util::get_id_of_asset(path).map_err(|p| {
-            DatabaseError {
-                message: format!("Failed to read ID of asset '{}'", path.display()),
-                inner: Some(p),
-            }
-        })?;
+        let asset_guid = match util::get_id_of_asset(path) {
+            Ok(id) => id,
+            Err(_) => return Ok(None),
+        };
 
         let rel_path = if let Some(rel_to) = relative_to.as_ref()
             && let Ok(rel) = path.strip_prefix(rel_to) {
@@ -245,7 +245,7 @@ impl Database {
             let mut first = true;
             while let Ok(e) = err_rx.try_recv() {
                 if first {
-                    println!();
+                    eprintln!();
                     first = false;
                 }
                 eprintln!("Error resolving asset: {}", e);
