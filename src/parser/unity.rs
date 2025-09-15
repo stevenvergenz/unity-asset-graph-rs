@@ -45,10 +45,9 @@ fn parse_reader(
     };
 
     #[cfg(feature = "locstring")]
-    {
-        let mut loctext_parser = LocStringParser::Start;
-        let mut locoverride_parser = LocOverrideParser::Start;
-    }
+    let mut loctext_parser = LocStringParser::Start;
+    #[cfg(feature = "locstring")]
+    let mut locoverride_parser = LocOverrideParser::Start;
 
     for line in reader.lines() {
         let line = match line {
