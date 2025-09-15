@@ -16,10 +16,11 @@ pub enum AssetType {
     Texture,
     Model,
     Audio,
-    Script,
+    CsFile,
     LocResource,
     LocString,
     BrokenRef,
+    CsDeclaration,
 }
 
 impl AssetType {
@@ -40,7 +41,7 @@ impl From<&PathBuf> for AssetType {
             Some("png") | Some("jpg") | Some("jpeg") => AssetType::Texture,
             Some("fbx") | Some("obj") => AssetType::Model,
             Some("wav") | Some("mp3") => AssetType::Audio,
-            Some("cs") => AssetType::Script,
+            Some("cs") => AssetType::CsFile,
             _ => AssetType::Unknown,
         }
     }
@@ -49,18 +50,19 @@ impl From<&PathBuf> for AssetType {
 impl Display for AssetType {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            AssetType::Unknown => write!(f, "Unknown"),
-            AssetType::Directory => write!(f, "Directory"),
-            AssetType::Prefab => write!(f, "Prefab"),
-            AssetType::Scene => write!(f, "Scene"),
-            AssetType::Texture => write!(f, "Texture"),
-            AssetType::Model => write!(f, "Model"),
-            AssetType::Audio => write!(f, "Audio"),
-            AssetType::Script => write!(f, "Script"),
-            AssetType::LocResource => write!(f, "Localization Resource"),
-            AssetType::LocString => write!(f, "Localized String"),
-            AssetType::BrokenRef => write!(f, "Broken Reference"),
-            AssetType::Asset => write!(f, "Asset"),
+            Self::Unknown => write!(f, "Unknown"),
+            Self::Directory => write!(f, "Directory"),
+            Self::Prefab => write!(f, "Prefab"),
+            Self::Scene => write!(f, "Scene"),
+            Self::Texture => write!(f, "Texture"),
+            Self::Model => write!(f, "Model"),
+            Self::Audio => write!(f, "Audio"),
+            Self::CsFile => write!(f, "C# Script"),
+            Self::LocResource => write!(f, "Localization Resource"),
+            Self::LocString => write!(f, "Localized String"),
+            Self::BrokenRef => write!(f, "Broken Reference"),
+            Self::Asset => write!(f, "Asset"),
+            Self::CsDeclaration => write!(f, "C# Declaration"),
         }
     }
 }

@@ -51,7 +51,7 @@ pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Ass
     if asset.asset_type.is_unity() {
         return unity::parse(asset, relative_to);
     }
-    if let AssetType::Script = asset.asset_type {
+    if let AssetType::CsFile = asset.asset_type {
         return csharp::parse(asset, relative_to);
     }
     #[cfg(feature = "locstring")]

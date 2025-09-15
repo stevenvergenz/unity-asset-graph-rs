@@ -5,6 +5,7 @@ use uuid::Uuid;
 pub enum Id {
     Guid(Uuid),
     Loc(String),
+    CsDeclaration(String),
 }
 
 impl Default for Id {
@@ -18,6 +19,7 @@ impl std::fmt::Display for Id {
         match self {
             Id::Guid(uuid) => write!(f, "guid:{}", uuid),
             Id::Loc(name) => write!(f, "loc:{}", name),
+            Id::CsDeclaration(name) => write!(f, "cs_decl:{}", name),
         }
     }
 }

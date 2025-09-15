@@ -31,8 +31,12 @@ enum CliCommand {
     },
     #[command(about = "Get information about a specific asset by ID or name")]
     Info {
-        #[arg(long, help = "ID of the asset")]
-        id: Option<String>,
+        #[arg(long, help = "GUID of the asset")]
+        guid: Option<Uuid>,
+        #[arg(long, help = "Loc ID of the asset")]
+        loc: Option<String>,
+        #[arg(long, help = "C# declaration name of the asset")]
+        cs: Option<String>,
         #[arg(long, help = "Name of the asset")]
         name: Option<String>,
         #[arg(long, help = "Show the list of detected package roots")]
@@ -60,6 +64,7 @@ enum CliCommand {
 enum OrphanFilter {
     UnityGuid,
     Loc,
+    CsDeclaration,
 }
 
 impl OrphanFilter {
@@ -71,6 +76,10 @@ impl OrphanFilter {
             },
             OrphanFilter::Loc => match id {
                 Id::Loc(_) => true,
+                _ => false,
+            },
+            OrphanFilter::CsDeclaration => match id {
+                Id::CsDeclaration(_) => true,
                 _ => false,
             },
         }
@@ -94,6 +103,7 @@ impl From<&Id> for OrphanFilter {
         match value {
             Id::Guid(_) => Self::UnityGuid,
             Id::Loc(_) => Self::Loc,
+            Id::CsDeclaration(_) => Self::CsDeclaration,
         }
     }
 }
@@ -103,6 +113,7 @@ impl std::fmt::Display for OrphanFilter {
         match self {
             Self::UnityGuid => write!(f, "Unity object"),
             Self::Loc => write!(f, "Localized string"),
+            Self::CsDeclaration => write!(f, "C# declaration"),
         }
     }
 }
@@ -113,8 +124,8 @@ fn main() {
         CliCommand::FindAssets { root_path, relative_to } => {
             find_assets(args.db_path, root_path, relative_to);
         },
-        CliCommand::Info { id, name, roots } => {
-            info(&args.db_path, id, name, roots);
+        CliCommand::Info { guid, loc, cs, name, roots } => {
+            info(&args.db_path, guid, loc, cs, name, roots);
         },
         CliCommand::FindUnused { id_type, id_only, summarize} => {
             find_unused(&args.db_path, id_type, id_only, summarize);
@@ -145,7 +156,7 @@ fn find_assets(db_path: String, root_path: String, relative_to: Option<String>) 
         .expect(format!("Failed to write database to {db_path}").as_str());
 }
 
-fn info(db_path: &str, id: Option<String>, name: Option<String>, roots: bool) {
+fn info(db_path: &str, guid: Option<Uuid>, loc: Option<String>, cs: Option<String>, name: Option<String>, roots: bool) {
     let file = File::open(&db_path)
         .expect(format!("Failed to open {db_path}").as_str());
     let mut db: Database = match rmp_serde::from_read(file) {
@@ -166,14 +177,18 @@ fn info(db_path: &str, id: Option<String>, name: Option<String>, roots: bool) {
             println!("- {r}");
         }
     }
-    else if let Some(id) = id.as_ref() {
-        let asset = if let Ok(id) = Uuid::parse_str(&id) {
-            db.asset(&Id::Guid(id.clone()))
-        }
-        else {
-            db.asset(&Id::Loc(id.clone()))
+    else if guid.is_some() || loc.is_some() || cs.is_some() {
+        let id = if let Some(guid) = guid {
+            Id::Guid(guid)
+        } else if let Some(loc) = loc {
+            Id::Loc(loc)
+        } else if let Some(cs) = cs {
+            Id::CsDeclaration(cs)
+        } else {
+            panic!("One of --guid, --loc, or --cs must be provided");
         };
-
+        
+        let asset = db.asset(&id);
         match asset {
             None => {
                 panic!("No asset found with ID: {}", id);
