@@ -4,6 +4,7 @@ use std::{
     path::PathBuf,
     sync::LazyLock,
 };
+use ansi_term::Color::Yellow;
 use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator};
 use tree_sitter_c_sharp as cs;
 use crate::{
@@ -51,15 +52,17 @@ static LOCSTR_QUERY: LazyLock<Query> = LazyLock::new(|| {
         )
     )
     arguments: (argument_list
-        (argument
-            name: (
-                (identifier) @arg-name
-                (#eq? @arg-name "key")
-            )?
-            (string_literal
-                (string_literal_content) @loc-str
+        [
+            (argument
+                .
+                (string_literal) @loc-str
             )
-        )
+            (argument
+                ((identifier) @arg-name (#eq? @arg-name "key"))
+                .
+                (string_literal) @loc-str
+            )
+        ]
     )
 )"#) {
         Ok(q) => q,
@@ -177,21 +180,42 @@ fn parse_buffer(
     // loop over all locstring cache gets
     let mut q = QueryCursor::new();
     let mut iter = q.matches(&LOCSTR_QUERY, tree.root_node(), buffer);
+
     while let Some(m) = iter.next() {
         let literal_match = m.captures.iter()
             .find(|c|
                 c.index == LOCSTR_QUERY.capture_index_for_name("loc-str").unwrap()
             );
         let node = literal_match.unwrap().node;
-        let text = match std::str::from_utf8(&buffer[node.start_byte()..node.end_byte()]) {
-            Ok(t) => t,
-            Err(_) => {
-                eprintln!("\nFailed to read UTF-8 from {}", path.display());
-                continue;
-            },
-        };
-        asset.relations.insert(Relation::Uses(Id::Loc(text.into())));
-        
+
+        if node.kind() == "string_literal" {
+            // trim open/close quotes
+            let text = match std::str::from_utf8(&buffer[node.start_byte()+1..node.end_byte()-1]) {
+                Ok(t) => t,
+                Err(_) => {
+                    eprintln!("\nFailed to read UTF-8 from {}", path.display());
+                    continue;
+                },
+            };
+            asset.relations.insert(Relation::Uses(Id::Loc(text.into())));
+        }
+        else {
+            let pos = node.start_position();
+            let text = match std::str::from_utf8(&buffer[node.start_byte()..node.end_byte()]) {
+                Ok(t) => t,
+                Err(_) => {
+                    eprintln!("\nFailed to read UTF-8 from {}", path.display());
+                    continue;
+                },
+            };
+            eprintln!("\n{}: Failed to index non-literal localized string key '{text}' ({}) ({}, line {} col {})",
+                Yellow.paint("Warning"),
+                node.kind(),
+                path.display(),
+                pos.row + 1,
+                pos.column + 1);
+            continue;
+        }
     }
 
     Ok(def_assets)
@@ -200,6 +224,7 @@ fn parse_buffer(
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn test_parse_csharp() -> Result<(), ParseError> {
@@ -207,6 +232,16 @@ mod test {
 using System;
 namespace MyNamespace {
     public class MyClass {
+        private static LocalizedString locstringNormal = LocStringCache.Get("NormalKey");
+
+        private static LocalizedString locstringPrefixed = LocStringCache.Get(
+            key: "PrefixedKey",
+            formatArgs: "Some other text");
+
+        private static LocalizedString locstringBad = LocStringCache.Get(someKey);
+
+        private static LocalizedString locstringBadPrefix = LocStringCache.Get(key: someKey);
+
         public int MyProperty { get; set; }
     }
 
@@ -231,11 +266,17 @@ namespace MyNamespace {
         };
         let more_assets = parse_buffer(code.as_bytes(), &mut asset, &"no_path".into())?;
 
-        assert_eq!(more_assets.len(), 4);
-        assert_eq!(more_assets[0].id, Id::CsType("MyNamespace.MyClass".into()));
-        assert_eq!(more_assets[1].id, Id::CsType("MyNamespace.MyStruct".into()));
-        assert_eq!(more_assets[2].id, Id::CsType("MyNamespace.MyEnum".into()));
-        assert_eq!(more_assets[3].id, Id::CsType("MyNamespace.IMyInterface".into()));
+        assert_eq!(asset.relations, HashSet::from([
+            Relation::Uses(Id::Loc("NormalKey".into())),
+            Relation::Uses(Id::Loc("PrefixedKey".into()))
+        ]));
+
+        assert_eq!(more_assets.into_iter().map(|a| a.id).collect::<Vec<Id>>(), vec![
+            Id::CsType("MyNamespace.MyClass".into()),
+            Id::CsType("MyNamespace.MyStruct".into()),
+            Id::CsType("MyNamespace.MyEnum".into()),
+            Id::CsType("MyNamespace.IMyInterface".into()),
+        ]);
 
         Ok(())
     }
