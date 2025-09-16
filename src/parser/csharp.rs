@@ -8,10 +8,11 @@ use regex::Regex;
 use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator};
 use tree_sitter_c_sharp as cs;
 use crate::{
-    asset::Asset,
-    asset_type::AssetType,
-    id::Id,
+    Asset,
+    AssetType,
+    Id,
     parser::ParseError,
+    Relation,
 };
 
 static LOC_REGEX: LazyLock<Regex> = LazyLock::new(|| {
@@ -128,7 +129,7 @@ fn parse_buffer(
             asset_type: AssetType::CsDeclaration,
             ..Default::default()
         };
-        def.dependencies.insert(asset.id.clone());
+        def.relations.insert(Relation::ContainedBy(asset.id.clone()));
 
         def_assets.push(def);
     }

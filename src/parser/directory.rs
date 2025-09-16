@@ -1,7 +1,12 @@
 use std::{
     path::PathBuf,
 };
-use crate::{parser::ParseError, util, Asset};
+use crate::{
+    parser::ParseError,
+    util,
+    Asset,
+    Relation,
+};
 
 pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
     let path = match relative_to {
@@ -10,7 +15,7 @@ pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Ass
     };
 
     if let Some(p) = path.parent() && let Ok(id) = util::get_id_of_asset(p) {
-        asset.dependencies.insert(id);
+        asset.relations.insert(Relation::ContainedBy(id));
     }
 
     Ok(vec![])

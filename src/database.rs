@@ -66,28 +66,34 @@ impl Database {
     }
 
     pub fn populate_reverse_dependencies(&mut self) {
+        // loop over a copy of the keys, and take the assets out of the map while we do this
+        // so we can mutate them
         let keys: Vec<Id> = self.assets.keys().cloned().collect();
         for asset_id in keys.iter() {
-            let (id, asset) = match self.assets.remove_entry(asset_id) {
+            let (asset_id, asset) = match self.assets.remove_entry(asset_id) {
                 Some(e) => e,
                 None => continue,
             };
-            for dep_id in &asset.dependencies {
-                let (id, mut dep) = match self.assets.remove_entry(dep_id) {
+
+            // loop over the asset's (forward) relations
+            for relation in asset.relations.iter() {
+                // take the related asset out of the map too
+                let (rel_id, mut rel_asset) = match self.assets.remove_entry(relation.id()) {
                     Some(e) => e,
                     None => {
                         let a = Asset {
-                            id: dep_id.clone(),
+                            id: relation.id().clone(),
                             asset_type: AssetType::BrokenRef,
                             ..Default::default()
                         };
-                        (dep_id.clone(), a)
+                        (relation.id().clone(), a)
                     },
                 };
-                dep.dependents.insert(asset_id.clone());
-                self.assets.insert(id, dep);
+                // add the back relation to the related asset
+                rel_asset.back_relations.insert(asset.invert_relation(relation));
+                self.assets.insert(rel_id, rel_asset);
             }
-            self.assets.insert(id, asset);
+            self.assets.insert(asset_id, asset);
         }
     }
 
@@ -114,6 +120,9 @@ impl Database {
                 && let Some(name_str) = file_name.to_str()
                 && name_str == name {
                 true
+            }
+            else if let Id::CsDeclaration(cs_name) = &a.id && cs_name.ends_with(name) {
+                return true;
             }
             else {
                 false

@@ -6,7 +6,7 @@ use std::{
 use regex::Regex;
 use uuid::Uuid;
 use crate::{
-    asset::Asset,
+    asset::{Asset, Relation},
     id::Id,
     parser::ParseError,
 };
@@ -59,13 +59,13 @@ fn parse_reader(
         {
             loctext_parser = loctext_parser.update(&line);
             if let LocStringParser::LocStringKey(id) = loctext_parser {
-                asset.dependencies.insert(id);
+                asset.relations.insert(Relation::Uses(id));
                 loctext_parser = LocStringParser::Start;
             }
             
             locoverride_parser = locoverride_parser.update(&line);
             if let LocOverrideParser::PropertyValue(value) = locoverride_parser {
-                asset.dependencies.insert(Id::Loc(value));
+                asset.relations.insert(Relation::Uses(Id::Loc(value)));
                 locoverride_parser = LocOverrideParser::Modifications;
             }
         }
@@ -74,7 +74,7 @@ fn parse_reader(
             && let Some(id_str) = captures.get(1)
             && let Ok(uuid) = Uuid::parse_str(id_str.as_str())
         {
-            asset.dependencies.insert(Id::Guid(uuid));
+            asset.relations.insert(Relation::Uses(Id::Guid(uuid)));
         }
     }
 
@@ -160,10 +160,10 @@ PrefabInstance:
         let result = parse_reader(&mut reader, &mut asset, None);
 
         assert!(result.is_ok());
-        assert!(asset.dependencies.contains(&Id::Guid(Uuid::parse_str("7c77678171dd7a24ead5c598179e6378").unwrap())));
-        assert!(asset.dependencies.contains(&Id::Guid(Uuid::parse_str("05503c2c5cf7b7f45bec1113802f99a0").unwrap())));
-        assert!(asset.dependencies.contains(&Id::Loc("people_panel_people_label".into())));
-        assert!(asset.dependencies.contains(&Id::Loc("events_host_panel_hand_raised_label".into())));
-        assert!(asset.dependencies.contains(&Id::Loc("events_host_panel_broadcasting_label".into())));
+        assert!(asset.relations.contains(&Relation::Uses(Id::Guid(Uuid::parse_str("7c77678171dd7a24ead5c598179e6378").unwrap()))));
+        assert!(asset.relations.contains(&Relation::Uses(Id::Guid(Uuid::parse_str("05503c2c5cf7b7f45bec1113802f99a0").unwrap()))));
+        assert!(asset.relations.contains(&Relation::Uses(Id::Loc("people_panel_people_label".into()))));
+        assert!(asset.relations.contains(&Relation::Uses(Id::Loc("events_host_panel_hand_raised_label".into()))));
+        assert!(asset.relations.contains(&Relation::Uses(Id::Loc("events_host_panel_broadcasting_label".into()))));
     }
 }

@@ -4,7 +4,7 @@ use std::{
     io::BufRead,
 };
 use crate::{
-    asset::Asset,
+    asset::{Asset, Relation},
     asset_type::AssetType,
     id::Id,
     parser::ParseError,
@@ -40,16 +40,14 @@ fn parse_reader(
     };
 
     // Use the parsed locstrings to create Asset instances
-    let mut assets = vec![];
-    for key in locstrings.keys() {
-        let asset = Asset {
+    let assets: Vec<Asset> = locstrings.keys().map(|key| {
+        Asset {
             id: Id::Loc(key.clone()),
             asset_type: AssetType::LocString,
-            dependencies: HashSet::from([asset.id.clone()]),
+            relations: HashSet::from([Relation::ContainedBy(asset.id.clone())]),
             ..Default::default()
-        };
-        assets.push(asset);
-    }
+        }
+    }).collect();
 
     Ok(assets)
 }

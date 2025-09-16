@@ -10,7 +10,7 @@ use std::{
     io::Write,
 };
 use uuid::Uuid;
-use asset_graph_rs::{ AssetType, Database, DatabaseFile, Id };
+use asset_graph_rs::{ AssetType, Database, DatabaseFile, Id, Relation };
 
 #[derive(Parser)]
 struct CliArgs {
@@ -101,6 +101,7 @@ impl From<String> for OrphanFilter {
 impl From<&Id> for OrphanFilter {
     fn from(value: &Id) -> Self {
         match value {
+            Id::None => panic!("Cannot convert Id::None to OrphanFilter"),
             Id::Guid(_) => Self::UnityGuid,
             Id::Loc(_) => Self::Loc,
             Id::CsDeclaration(_) => Self::CsDeclaration,
@@ -236,7 +237,7 @@ fn find_unused(db_path: &str, id_type: Option<OrphanFilter>, id_only: bool, summ
             continue;
         }
 
-        if asset.dependents.len() == 0 {
+        if asset.relations_iter().all(|r| !matches!(r, Relation::UsedBy(_))) {
             orphans.insert(asset.id.clone(), asset);
 
             let type_class: OrphanFilter = (&asset.id).into();
