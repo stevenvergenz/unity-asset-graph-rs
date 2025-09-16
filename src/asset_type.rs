@@ -20,7 +20,7 @@ pub enum AssetType {
     LocResource,
     LocString,
     BrokenRef,
-    CsDeclaration,
+    CsType,
 }
 
 impl AssetType {
@@ -62,7 +62,7 @@ impl Display for AssetType {
             Self::LocString => write!(f, "Localized String"),
             Self::BrokenRef => write!(f, "Broken Reference"),
             Self::Asset => write!(f, "Asset"),
-            Self::CsDeclaration => write!(f, "C# Declaration"),
+            Self::CsType => write!(f, "C# Type"),
         }
     }
 }

@@ -37,6 +37,39 @@ static CSOBJ_QUERY: LazyLock<Query> = LazyLock::new(|| {
         .expect("Failed to compile class query")
 });
 
+static LOCSTR_QUERY: LazyLock<Query> = LazyLock::new(|| {
+    match Query::new(&CS_LANG, r#"
+(invocation_expression
+    function: (member_access_expression
+        expression: (
+            (identifier) @obj-name
+            (#eq? @obj-name "LocStringCache")
+        )
+        name: (
+            (identifier) @fn-name
+            (#eq? @fn-name "Get")
+        )
+    )
+    arguments: (argument_list
+        (argument
+            name: (
+                (identifier) @arg-name
+                (#eq? @arg-name "key")
+            )?
+            (string_literal
+                (string_literal_content) @loc-str
+            )
+        )
+    )
+)"#) {
+        Ok(q) => q,
+        Err(e) => {
+            eprintln!("Failed to compile locstring query: {e}");
+            panic!();
+        },
+    }
+});
+
 pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
     let path = match relative_to {
         Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
@@ -67,21 +100,17 @@ pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Ass
         });
     }
 
-    parse_buffer(&buf, asset, relative_to)
+    parse_buffer(&buf, asset, &path.clone())
 }
 
 fn parse_buffer(
     buffer: &[u8], 
     asset: &mut Asset, 
-    relative_to: Option<&PathBuf>,
+    path: &PathBuf,
 ) -> Result<Vec<Asset>, ParseError> {
-    let path = match relative_to {
-        Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
-        None => asset.path.as_ref().unwrap(),
-    };
-
     let mut def_assets = vec![];
     
+    // load syntax tree
     let mut parser = Parser::new();
     parser.set_language(&CS_LANG).expect("Error loading C# grammar");
     let tree = parser.parse(buffer, None);
@@ -93,16 +122,19 @@ fn parse_buffer(
         }),
     };
 
+    // loop over all type declarations
     let mut q = QueryCursor::new();
     let mut iter = q.matches(&CSOBJ_QUERY, tree.root_node(), buffer);
     while let Some(m) = iter.next() {
+        // get the name of the type
         let node = m.captures[0].node;
         let text = &buffer[node.start_byte()..node.end_byte()];
-        let obj_name = match std::str::from_utf8(text) {
+        let type_name = match std::str::from_utf8(text) {
             Ok(name) => name,
             Err(_) => continue,
         };
 
+        // find the namespace, if any
         let mut parent = node.parent();
         let mut namespace = None;
         while let Some(p) = parent {
@@ -123,16 +155,18 @@ fn parse_buffer(
             parent = p.parent();
         }
 
+        // combine namespace and type name to get FQN
         let fqn = if let Some(ns) = namespace {
-            format!("{ns}.{obj_name}")
+            format!("{ns}.{type_name}")
         } else {
-            obj_name.to_string()
+            type_name.to_string()
         };
 
+        // create a new asset for this type
         let mut def = Asset {
             id: Id::CsType(fqn),
             path: None,
-            asset_type: AssetType::CsDeclaration,
+            asset_type: AssetType::CsType,
             ..Default::default()
         };
         def.relations.insert(Relation::ContainedBy(asset.id.clone()));
@@ -140,5 +174,69 @@ fn parse_buffer(
         def_assets.push(def);
     }
 
+    // loop over all locstring cache gets
+    let mut q = QueryCursor::new();
+    let mut iter = q.matches(&LOCSTR_QUERY, tree.root_node(), buffer);
+    while let Some(m) = iter.next() {
+        let literal_match = m.captures.iter()
+            .find(|c|
+                c.index == LOCSTR_QUERY.capture_index_for_name("loc-str").unwrap()
+            );
+        let node = literal_match.unwrap().node;
+        let text = match std::str::from_utf8(&buffer[node.start_byte()..node.end_byte()]) {
+            Ok(t) => t,
+            Err(_) => {
+                eprintln!("\nFailed to read UTF-8 from {}", path.display());
+                continue;
+            },
+        };
+        asset.relations.insert(Relation::Uses(Id::Loc(text.into())));
+        
+    }
+
     Ok(def_assets)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_parse_csharp() -> Result<(), ParseError> {
+        let code = r#"
+using System;
+namespace MyNamespace {
+    public class MyClass {
+        public int MyProperty { get; set; }
+    }
+
+    struct MyStruct {
+        public int X;
+        public int Y;
+    }
+
+    enum MyEnum {
+        First,
+        Second,
+        Third
+    }
+
+    interface IMyInterface {
+        void DoSomething();
+    }
+}"#;
+        let mut asset = Asset {
+            asset_type: AssetType::CsFile,
+            ..Default::default()
+        };
+        let more_assets = parse_buffer(code.as_bytes(), &mut asset, &"no_path".into())?;
+
+        assert_eq!(more_assets.len(), 4);
+        assert_eq!(more_assets[0].id, Id::CsType("MyNamespace.MyClass".into()));
+        assert_eq!(more_assets[1].id, Id::CsType("MyNamespace.MyStruct".into()));
+        assert_eq!(more_assets[2].id, Id::CsType("MyNamespace.MyEnum".into()));
+        assert_eq!(more_assets[3].id, Id::CsType("MyNamespace.IMyInterface".into()));
+
+        Ok(())
+    }
 }

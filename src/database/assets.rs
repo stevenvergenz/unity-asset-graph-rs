@@ -13,7 +13,8 @@ use crate::{
     util,
 };
 
-const THREADS: usize = 4;
+const FIND_THREADS: usize = 4;
+const RESOLVE_THREADS: usize = 4;
 
 impl Database {
     pub fn find_assets(&mut self) -> Result<(), DatabaseError> {
@@ -26,7 +27,7 @@ impl Database {
         let (err_tx, err_rx) = mpsc::channel();
         let mut handles = vec![];
 
-        for _ in 0..THREADS {
+        for _ in 0..FIND_THREADS {
             let paths = Arc::clone(&paths);
             let tx = tx.clone();
             let err_tx = err_tx.clone();
@@ -223,7 +224,7 @@ impl Database {
         let (err_tx, err_rx) = mpsc::channel();
         let mut handles = vec![];
 
-        for _ in 0..THREADS {
+        for _ in 0..RESOLVE_THREADS {
             let assets = Arc::clone(&assets);
             let tx = tx.clone();
             let err_tx = err_tx.clone();
