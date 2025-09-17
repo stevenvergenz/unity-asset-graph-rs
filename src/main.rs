@@ -145,7 +145,7 @@ fn find_assets(db_path: String, root_path: String, relative_to: Option<String>) 
         }
     };
 
-    if let Err(e) = db.find_assets() {
+    if let Err(e) = db.populate_pass1_find() {
         panic!("Error finding assets: {}", e);
     }
 

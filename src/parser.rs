@@ -1,9 +1,3 @@
-use std::path::{Path, PathBuf};
-use crate::{
-    asset::Asset,
-    asset_type::AssetType,
-};
-
 pub mod manifest_json;
 pub mod package_json;
 mod unity;
@@ -16,6 +10,17 @@ mod loc_text;
 mod loc_resource;
 #[cfg(feature = "locstring")]
 mod loc_override;
+
+pub use csharp::type_broker::TypeBroker;
+
+use std::{
+    sync::{Arc, Mutex},
+    path::{Path, PathBuf},
+};
+use crate::{
+    asset::Asset,
+    asset_type::AssetType,
+};
 
 #[derive(Debug)]
 pub struct ParseError {
@@ -40,7 +45,7 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
+pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>, broker: &Arc<Mutex<TypeBroker>>) -> Result<Vec<Asset>, ParseError> {
     if asset.path.is_none() {
         return Ok(vec![]);
     }
@@ -52,7 +57,7 @@ pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Ass
         return unity::parse(asset, relative_to);
     }
     if let AssetType::CsFile = asset.asset_type {
-        return csharp::parse(asset, relative_to);
+        return csharp::parse(asset, relative_to, broker);
     }
     #[cfg(feature = "locstring")]
     if let Some(filename) = asset.path.as_ref().unwrap().file_name().and_then(|f| f.to_str())

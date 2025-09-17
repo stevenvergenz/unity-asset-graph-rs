@@ -1,21 +1,25 @@
 mod find_types;
+pub mod type_broker;
+
+#[cfg(feature = "locstring")]
 mod find_locstrings;
 
 use std::{
     fs::File,
     io::Read,
     path::PathBuf,
-    sync::LazyLock,
+    sync::{Arc, Mutex, LazyLock},
 };
 use tree_sitter::{Language, Parser};
 use tree_sitter_c_sharp as cs;
 use crate::{Asset, parser::ParseError};
+use type_broker::TypeBroker;
 
 pub static CS_LANG: LazyLock<Language> = LazyLock::new(|| {
     cs::LANGUAGE.into()
 });
 
-pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
+pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>, broker: &Arc<Mutex<TypeBroker>>) -> Result<Vec<Asset>, ParseError> {
     let path = match relative_to {
         Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
         None => asset.path.as_ref().unwrap(),
@@ -45,13 +49,14 @@ pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Ass
         });
     }
 
-    parse_buffer(&buf, asset, &path.clone())
+    parse_buffer(&buf, asset, &path.clone(), broker)
 }
 
 fn parse_buffer(
     buffer: &[u8], 
     asset: &mut Asset, 
     path: &PathBuf,
+    broker: &Arc<Mutex<TypeBroker>>
 ) -> Result<Vec<Asset>, ParseError> {
     let mut def_assets = vec![];
     
@@ -67,7 +72,9 @@ fn parse_buffer(
         }),
     };
 
-    find_types::find_types(&tree, buffer, asset, &mut def_assets)?;
+    find_types::find_types(&tree, buffer, asset, &mut def_assets, broker)?;
+
+    #[cfg(feature = "locstring")]
     find_locstrings::find_locstrings(&tree, buffer, path, asset)?;
 
     Ok(def_assets)
@@ -112,12 +119,17 @@ namespace MyNamespace {
     interface IMyInterface {
         void DoSomething();
     }
-}"#;
+}
+
+public class UnrelatedClass { }
+"#;
         let mut asset = Asset {
             asset_type: AssetType::CsFile,
             ..Default::default()
         };
-        let more_assets = parse_buffer(code.as_bytes(), &mut asset, &"no_path".into())?;
+        let broker = Arc::new(Mutex::new(TypeBroker::new()));
+        let more_assets = parse_buffer(code.as_bytes(), &mut asset, &"no_path".into(), &broker)?;
+        let broker = Arc::into_inner(broker).unwrap().into_inner().unwrap();
 
         assert_eq!(asset.relations, HashSet::from([
             Relation::Uses(Id::Loc("NormalKey".into())),
@@ -129,7 +141,21 @@ namespace MyNamespace {
             Id::CsType { name: "MyStruct".into(), namespace: Some("MyNamespace".into()) },
             Id::CsType { name: "MyEnum".into(), namespace: Some("MyNamespace".into()) },
             Id::CsType { name: "IMyInterface".into(), namespace: Some("MyNamespace".into()) },
+            Id::CsType { name: "UnrelatedClass".into(), namespace: None },
         ]);
+
+        assert_eq!(broker.requests(), &HashSet::from([
+            type_broker::TypeRequest::new(
+                &Id::CsType { name: "MyClass".into(), namespace: Some("MyNamespace".into()) },
+                "LocalizedString",
+                &["System", "MyNamespace"]
+            ),
+            type_broker::TypeRequest::new(
+                &Id::CsType { name: "MyClass".into(), namespace: Some("MyNamespace".into()) },
+                "LocStringCache",
+                &["System", "MyNamespace"]
+            ),
+        ]));
 
         Ok(())
     }

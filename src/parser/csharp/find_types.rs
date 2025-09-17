@@ -1,6 +1,12 @@
-use std::sync::LazyLock;
+use std::sync::{Arc, Mutex, LazyLock};
 use tree_sitter::{Query, QueryCursor, StreamingIterator, Tree};
-use crate::{Asset, AssetType, Id, parser::ParseError, Relation};
+use crate::{
+    Asset, 
+    AssetType, 
+    Id, 
+    parser::{ParseError, TypeBroker}, 
+    Relation,
+};
 
 /// Query to find class, struct, enum, and interface declarations.
 /// Syntax tree identifiers come from https://github.com/tree-sitter/tree-sitter-c-sharp/blob/master/src/node-types.json
@@ -21,7 +27,13 @@ static CSOBJ_QUERY: LazyLock<Query> = LazyLock::new(|| {
         .expect("Failed to compile class query")
 });
 
-pub fn find_types(tree: &Tree, buffer: &[u8], asset: &mut Asset, def_assets: &mut Vec<Asset>) -> Result<(), ParseError> {
+pub fn find_types(
+    tree: &Tree, 
+    buffer: &[u8], 
+    asset: &mut Asset, 
+    def_assets: &mut Vec<Asset>, 
+    broker: &Arc<Mutex<TypeBroker>>,
+) -> Result<(), ParseError> {
     // loop over all type declarations
     let mut q = QueryCursor::new();
     let mut iter = q.matches(&CSOBJ_QUERY, tree.root_node(), buffer);

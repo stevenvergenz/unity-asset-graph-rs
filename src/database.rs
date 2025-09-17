@@ -12,7 +12,8 @@ use crate::{
 };
 
 mod roots;
-mod assets;
+mod populate_pass1;
+mod populate_pass2;
 
 #[derive(Debug)]
 pub struct DatabaseError {
@@ -65,6 +66,13 @@ impl Database {
         }
     }
 
+    pub fn populate(&mut self) -> Result<(), DatabaseError> {
+        self.populate_pass1_find()?;
+        self.populate_pass2_resolve()?;
+        self.populate_reverse_dependencies();
+        Ok(())
+    }
+
     pub fn populate_reverse_dependencies(&mut self) {
         // loop over a copy of the keys, and take the assets out of the map while we do this
         // so we can mutate them
@@ -105,12 +113,16 @@ impl Database {
         self.loc_roots.iter()
     }
 
-    pub fn assets(&self) -> impl Iterator<Item = &Asset> {
-        self.assets.values()
-    }
-
     pub fn asset(&self, id: &Id) -> Option<&Asset> {
         self.assets.get(id)
+    }
+
+    pub fn asset_mut(&mut self, id: &Id) -> Option<&mut Asset> {
+        self.assets.get_mut(id)
+    }
+
+    pub fn assets(&self) -> impl Iterator<Item = &Asset> {
+        self.assets.values()
     }
 
     pub fn assets_by_name(&self, name: &str) -> impl Iterator<Item = &Asset> {
