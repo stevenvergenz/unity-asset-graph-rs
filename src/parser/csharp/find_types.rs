@@ -1,5 +1,5 @@
 use std::sync::{Arc, Mutex, LazyLock};
-use tree_sitter::{Query, QueryCursor, StreamingIterator, Tree};
+use tree_sitter::{Node, Query, QueryCursor, StreamingIterator, Tree};
 use crate::{
     Asset, 
     AssetType, 
@@ -12,19 +12,32 @@ use crate::{
 /// Syntax tree identifiers come from https://github.com/tree-sitter/tree-sitter-c-sharp/blob/master/src/node-types.json
 static CSOBJ_QUERY: LazyLock<Query> = LazyLock::new(|| {
     Query::new(&super::CS_LANG, r#"
-[(class_declaration
-    name: (identifier) @name
-)
-(struct_declaration
-    name: (identifier) @name
-)
-(enum_declaration
-    name: (identifier) @name
-)
-(interface_declaration
-    name: (identifier) @name
-)]"#)
-        .expect("Failed to compile class query")
+[
+    (class_declaration
+        name: (identifier) @name
+    )
+    (struct_declaration
+        name: (identifier) @name
+    )
+    (enum_declaration
+        name: (identifier) @name
+    )
+    (interface_declaration
+        name: (identifier) @name
+    )
+]"#).expect("Failed to compile class query")
+});
+
+static ID_QUERY: LazyLock<Query> = LazyLock::new(|| {
+    Query::new(&super::CS_LANG, r#"
+[
+    (member_access_expression
+        expression: (identifier) @type
+    )
+    (variable_declaration
+        type: (identifier) @type
+    )
+]"#).expect("Failed to compile identifier query")
 });
 
 pub fn find_types(
@@ -78,5 +91,29 @@ pub fn find_types(
 
         def_assets.push(def);
     }
+
+    let mut types = std::collections::HashSet::new();
+    let mut q = QueryCursor::new();
+    let mut iter = q.matches(&ID_QUERY, tree.root_node(), buffer);
+    while let Some(m) = iter.next() {
+        types.insert(m.captures[0].node.utf8_text(buffer).unwrap());
+        debug(m.captures[0].node, buffer);
+        println!();
+    }
+
+    println!("Found types: {:?}", types);
     Ok(())
+}
+
+fn debug(node: Node, buffer: &[u8]) {
+    let mut n = Some(node);
+    while let Some(node) = n {
+        if node.end_byte() - node.start_byte() < 100 {
+            println!("{}: {}", node.kind(), node.utf8_text(&buffer).unwrap());
+        }
+        else {
+            println!("{}: <{} bytes>", node.kind(), node.end_byte() - node.start_byte());
+        }
+        n = node.parent();
+    }
 }
