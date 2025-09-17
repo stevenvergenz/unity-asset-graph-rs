@@ -79,7 +79,7 @@ impl OrphanFilter {
                 _ => false,
             },
             OrphanFilter::CsDeclaration => match id {
-                Id::CsType(_) => true,
+                Id::CsType { .. } => true,
                 _ => false,
             },
         }
@@ -104,7 +104,7 @@ impl From<&Id> for OrphanFilter {
             Id::None => panic!("Cannot convert Id::None to OrphanFilter"),
             Id::Guid(_) => Self::UnityGuid,
             Id::Loc(_) => Self::Loc,
-            Id::CsType(_) => Self::CsDeclaration,
+            Id::CsType { .. } => Self::CsDeclaration,
         }
     }
 }
@@ -184,7 +184,10 @@ fn info(db_path: &str, guid: Option<Uuid>, loc: Option<String>, cs: Option<Strin
         } else if let Some(loc) = loc {
             Id::Loc(loc)
         } else if let Some(cs) = cs {
-            Id::CsType(cs)
+            match cs.rsplit_once('.') {
+                Some((namespace, name)) => Id::CsType { name: name.into(), namespace: Some(namespace.into()) },
+                None => Id::CsType { name: cs, namespace: None },
+            }
         } else {
             panic!("One of --guid, --loc, or --cs must be provided");
         };
@@ -210,7 +213,7 @@ fn info(db_path: &str, guid: Option<Uuid>, loc: Option<String>, cs: Option<Strin
         }
     }
     else {
-        panic!("Either --id or --name must be provided");
+        panic!("One of --name, --guid, --loc, or --cs must be provided");
     }
     
 }

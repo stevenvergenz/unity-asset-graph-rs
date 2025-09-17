@@ -8,7 +8,7 @@ pub enum Id {
     None,
     Guid(Uuid),
     Loc(String),
-    CsType(String),
+    CsType { name: String, namespace: Option<String> },
 }
 
 impl Display for Id {
@@ -17,7 +17,8 @@ impl Display for Id {
             Self::None => write!(f, "<no id>"),
             Self::Guid(uuid) => write!(f, "guid:{}", uuid),
             Self::Loc(name) => write!(f, "loc:{}", name),
-            Self::CsType(name) => write!(f, "cs_type:{}", name),
+            Self::CsType { name, namespace: Some(ns) } => write!(f, "cs_type:{ns}.{name}"),
+            Self::CsType { name, namespace: None } => write!(f, "cs_type:{}", name),
         }
     }
 }

@@ -1,76 +1,18 @@
+mod find_types;
+mod find_locstrings;
+
 use std::{
     fs::File,
     io::Read,
     path::PathBuf,
     sync::LazyLock,
 };
-use ansi_term::Color::Yellow;
-use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator};
+use tree_sitter::{Language, Parser};
 use tree_sitter_c_sharp as cs;
-use crate::{
-    Asset,
-    AssetType,
-    Id,
-    parser::ParseError,
-    Relation,
-};
+use crate::{Asset, parser::ParseError};
 
-static CS_LANG: LazyLock<Language> = LazyLock::new(|| {
+pub static CS_LANG: LazyLock<Language> = LazyLock::new(|| {
     cs::LANGUAGE.into()
-});
-
-/// Query to find class, struct, enum, and interface declarations.
-/// Syntax tree identifiers come from https://github.com/tree-sitter/tree-sitter-c-sharp/blob/master/src/node-types.json
-static CSOBJ_QUERY: LazyLock<Query> = LazyLock::new(|| {
-    Query::new(&CS_LANG, r#"
-[(class_declaration
-    name: (identifier) @name
-)
-(struct_declaration
-    name: (identifier) @name
-)
-(enum_declaration
-    name: (identifier) @name
-)
-(interface_declaration
-    name: (identifier) @name
-)]"#)
-        .expect("Failed to compile class query")
-});
-
-static LOCSTR_QUERY: LazyLock<Query> = LazyLock::new(|| {
-    match Query::new(&CS_LANG, r#"
-(invocation_expression
-    function: (member_access_expression
-        expression: (
-            (identifier) @obj-name
-            (#eq? @obj-name "LocStringCache")
-        )
-        name: (
-            (identifier) @fn-name
-            (#eq? @fn-name "Get")
-        )
-    )
-    arguments: (argument_list
-        [
-            (argument
-                .
-                (string_literal) @loc-str
-            )
-            (argument
-                ((identifier) @arg-name (#eq? @arg-name "key"))
-                .
-                (string_literal) @loc-str
-            )
-        ]
-    )
-)"#) {
-        Ok(q) => q,
-        Err(e) => {
-            eprintln!("Failed to compile locstring query: {e}");
-            panic!();
-        },
-    }
 });
 
 pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
@@ -125,98 +67,8 @@ fn parse_buffer(
         }),
     };
 
-    // loop over all type declarations
-    let mut q = QueryCursor::new();
-    let mut iter = q.matches(&CSOBJ_QUERY, tree.root_node(), buffer);
-    while let Some(m) = iter.next() {
-        // get the name of the type
-        let node = m.captures[0].node;
-        let text = &buffer[node.start_byte()..node.end_byte()];
-        let type_name = match std::str::from_utf8(text) {
-            Ok(name) => name,
-            Err(_) => continue,
-        };
-
-        // find the namespace, if any
-        let mut parent = node.parent();
-        let mut namespace = None;
-        while let Some(p) = parent {
-            if p.kind() == "namespace_declaration" {
-                if let Some(name_node) = p.child_by_field_name("name") {
-                    let name_text = &buffer[name_node.start_byte()..name_node.end_byte()];
-                    match std::str::from_utf8(name_text) {
-                        Ok(ns) => {
-                            namespace = Some(ns);
-                            break;
-                        },
-                        Err(_) => break,
-                    }
-                } else {
-                    break;
-                }
-            }
-            parent = p.parent();
-        }
-
-        // combine namespace and type name to get FQN
-        let fqn = if let Some(ns) = namespace {
-            format!("{ns}.{type_name}")
-        } else {
-            type_name.to_string()
-        };
-
-        // create a new asset for this type
-        let mut def = Asset {
-            id: Id::CsType(fqn),
-            path: None,
-            asset_type: AssetType::CsType,
-            ..Default::default()
-        };
-        def.relations.insert(Relation::ContainedBy(asset.id.clone()));
-
-        def_assets.push(def);
-    }
-
-    // loop over all locstring cache gets
-    let mut q = QueryCursor::new();
-    let mut iter = q.matches(&LOCSTR_QUERY, tree.root_node(), buffer);
-
-    while let Some(m) = iter.next() {
-        let literal_match = m.captures.iter()
-            .find(|c|
-                c.index == LOCSTR_QUERY.capture_index_for_name("loc-str").unwrap()
-            );
-        let node = literal_match.unwrap().node;
-
-        if node.kind() == "string_literal" {
-            // trim open/close quotes
-            let text = match std::str::from_utf8(&buffer[node.start_byte()+1..node.end_byte()-1]) {
-                Ok(t) => t,
-                Err(_) => {
-                    eprintln!("\nFailed to read UTF-8 from {}", path.display());
-                    continue;
-                },
-            };
-            asset.relations.insert(Relation::Uses(Id::Loc(text.into())));
-        }
-        else {
-            let pos = node.start_position();
-            let text = match std::str::from_utf8(&buffer[node.start_byte()..node.end_byte()]) {
-                Ok(t) => t,
-                Err(_) => {
-                    eprintln!("\nFailed to read UTF-8 from {}", path.display());
-                    continue;
-                },
-            };
-            eprintln!("\n{}: Failed to index non-literal localized string key '{text}' ({}) ({}, line {} col {})",
-                Yellow.paint("Warning"),
-                node.kind(),
-                path.display(),
-                pos.row + 1,
-                pos.column + 1);
-            continue;
-        }
-    }
+    find_types::find_types(&tree, buffer, asset, &mut def_assets)?;
+    find_locstrings::find_locstrings(&tree, buffer, path, asset)?;
 
     Ok(def_assets)
 }
@@ -225,6 +77,7 @@ fn parse_buffer(
 mod test {
     use super::*;
     use std::collections::HashSet;
+    use crate::{AssetType, Id, Relation};
 
     #[test]
     fn test_parse_csharp() -> Result<(), ParseError> {
@@ -272,10 +125,10 @@ namespace MyNamespace {
         ]));
 
         assert_eq!(more_assets.into_iter().map(|a| a.id).collect::<Vec<Id>>(), vec![
-            Id::CsType("MyNamespace.MyClass".into()),
-            Id::CsType("MyNamespace.MyStruct".into()),
-            Id::CsType("MyNamespace.MyEnum".into()),
-            Id::CsType("MyNamespace.IMyInterface".into()),
+            Id::CsType { name: "MyClass".into(), namespace: Some("MyNamespace".into()) },
+            Id::CsType { name: "MyStruct".into(), namespace: Some("MyNamespace".into()) },
+            Id::CsType { name: "MyEnum".into(), namespace: Some("MyNamespace".into()) },
+            Id::CsType { name: "IMyInterface".into(), namespace: Some("MyNamespace".into()) },
         ]);
 
         Ok(())
