@@ -36,6 +36,22 @@ impl TypeRequest {
     }
 }
 
+impl std::convert::Into<Id> for TypeRequest {
+    fn into(mut self) -> Id {
+        if self.known {
+            if let Some(ns) = self.scoped_namespaces.pop() {
+                Id::CsType { name: self.type_name, namespace: Some(ns) }
+            }
+            else {
+                Id::CsType { name: self.type_name, namespace: None }
+            }
+        }
+        else {
+            panic!()
+        }
+    }
+}
+
 pub struct TypeBroker {
     requests: HashSet<TypeRequest>,
 }
@@ -69,6 +85,14 @@ impl TypeBroker {
         for req in self.requests.extract_if(|req| req.satisfied_by(id)) {
             if let Some(asset) = database.asset_mut(&req.requester) {
                 asset.relations.insert(Relation::Uses(id.clone()));
+            }
+        }
+    }
+
+    pub fn fulfill_known(&mut self, database: &mut Database) {
+        for req in self.requests.extract_if(|req| req.known) {
+            if let Some(asset) = database.asset_mut(&req.requester) {
+                asset.relations.insert(Relation::Uses(req.into()));
             }
         }
     }

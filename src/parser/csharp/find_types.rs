@@ -7,7 +7,7 @@ use tree_sitter::{
     Query,
     QueryCursor, 
     StreamingIterator, 
-    Tree, TreeCursor,
+    Tree,
 };
 use crate::{
     Asset, 
@@ -16,6 +16,12 @@ use crate::{
     parser::{ParseError, TypeBroker}, 
     Relation,
 };
+
+const EXCLUDED_NS: [&str; 3] = [
+    "System.",
+    "UnityEngine.",
+    "UnityEditor.",
+];
 
 struct TypeInfo<'a> {
     node: Node<'a>,
@@ -61,7 +67,7 @@ pub fn find_types(
 
     let mut q = QueryCursor::new();
     let mut iter = q.matches(&USING_QUERY, tree.root_node(), buffer);
-    while let Some(m) = iter.next() {
+    'a: while let Some(m) = iter.next() {
         if let Some(alias) = m.nodes_for_capture_index(USING_QUERY.capture_index_for_name("alias").unwrap()).next()
         && let Some(fqn_node) = m.nodes_for_capture_index(USING_QUERY.capture_index_for_name("type").unwrap()).next() {
             let fqn = fqn_node.utf8_text(buffer).unwrap();
@@ -78,12 +84,15 @@ pub fn find_types(
                 .unwrap()
                 .utf8_text(buffer)
                 .unwrap();
-            if !text.starts_with("System.") {
-                usings.push(text.into());
+
+            for exns in EXCLUDED_NS {
+                if text.starts_with(exns) {
+                    break 'a;
+                }
             }
+            usings.push(text.into());
         }
     }
-    println!("Usings: {usings:?}");
 
     let decls = find_declarations(tree, buffer);
     for decl in &decls {
@@ -108,7 +117,9 @@ pub fn find_types(
                     usings.push(n.clone())
                 }
                 let text = usage.utf8_text(buffer).unwrap();
-                broker.lock().unwrap().request(&a.id, text, &usings);
+                if text != decl.name {
+                    broker.lock().unwrap().request(&a.id, text, &usings);
+                }
             }
         }
 
@@ -172,12 +183,13 @@ fn resolve_declaration(decl_node: Node, buffer: &[u8]) -> (String, Option<String
         node = n.parent();
     }
 
-    let root = node.unwrap();
-    for child in root.children(&mut root.walk()) {
-        if child.kind() == "file_scoped_namespace_declaration" {
-            ns_parts.push(
-                child.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap(),
-            );
+    if let Some(root) = node {
+        for child in root.children(&mut root.walk()) {
+            if child.kind() == "file_scoped_namespace_declaration" {
+                ns_parts.push(
+                    child.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap(),
+                );
+            }
         }
     }
 
@@ -220,7 +232,7 @@ fn resolve_qualified_name(node: Node, buffer: &[u8]) -> Id {
     Id::CsType { name: name.into(), namespace: Some(ns.into()) }
 }
 
-fn debug(node: Node, buffer: &[u8]) {
+fn _debug(node: Node, buffer: &[u8]) {
     let mut n = Some(node);
     while let Some(node) = n {
         if node.end_byte() - node.start_byte() < 100 {

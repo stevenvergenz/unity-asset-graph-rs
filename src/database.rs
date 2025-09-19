@@ -14,6 +14,7 @@ use crate::{
 mod roots;
 mod populate_pass1;
 mod populate_pass2;
+mod populate_pass3;
 
 #[derive(Debug)]
 pub struct DatabaseError {
@@ -68,7 +69,8 @@ impl Database {
 
     pub fn populate(&mut self) -> Result<(), DatabaseError> {
         self.populate_pass1_find()?;
-        self.populate_pass2_resolve()?;
+        let broker = self.populate_pass2_resolve()?;
+        self.populate_pass3_link(broker)?;
         self.populate_reverse_dependencies();
         Ok(())
     }
