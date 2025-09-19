@@ -50,7 +50,7 @@ impl Display for Relation {
     }
 }
 
-#[derive(Deserialize, Serialize, Default)]
+#[derive(Deserialize, Serialize, Default, PartialEq, Eq, Debug)]
 pub struct Asset {
     pub id: Id,
     pub asset_type: AssetType,

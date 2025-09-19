@@ -1,3 +1,4 @@
+mod queries;
 mod find_types;
 pub mod type_broker;
 
@@ -90,13 +91,13 @@ mod test {
     fn test_parse_csharp() -> Result<(), ParseError> {
         let code = r#"
 using System;
-using LocalizedString = System.FakeNamespace.LocalizedString;
+using My.DifferentNamespace;
 
 namespace My.Namespace {
     public class MyClass {
         internal class UnderClass { }
 
-        private static System.FakeNamespace.LocalizedString locstringNormal = LocStringCache.Get("NormalKey");
+        private static My.OtherNamespace.LocalizedString locstringNormal = LocStringCache.Get("NormalKey");
 
         private static LocalizedString locstringPrefixed = LocStringCache.Get(
             key: "PrefixedKey",
@@ -142,27 +143,81 @@ namespace My.Namespace {
             Relation::Uses(Id::Loc("PrefixedKey".into()))
         ]));
 
-        assert_eq!(more_assets.into_iter().map(|a| a.id).collect::<Vec<Id>>(), vec![
-            Id::CsType { name: "MyClass".into(), namespace: Some("My.Namespace".into()) },
-            Id::CsType { name: "MyClass.UnderClass".into(), namespace: Some("My.Namespace".into()) },
-            Id::CsType { name: "MyStruct".into(), namespace: Some("My.Namespace".into()) },
-            Id::CsType { name: "MyEnum".into(), namespace: Some("My.Namespace".into()) },
-            Id::CsType { name: "IMyInterface".into(), namespace: Some("My.Namespace".into()) },
-            Id::CsType { name: "InnerClass".into(), namespace: Some("My.Namespace.InnerNamespace".into()) },
-        ]);
+        let more_reference = vec![
+            Asset {
+                id: Id::CsType { name: "MyClass".into(), namespace: Some("My.Namespace".into()) },
+                asset_type: AssetType::CsType,
+                relations: HashSet::from([
+                    Relation::ContainedBy(Id::None),
+                ]),
+                ..Default::default()
+            },
+            Asset {
+                id: Id::CsType { name: "MyClass.UnderClass".into(), namespace: Some("My.Namespace".into()) },
+                asset_type: AssetType::CsType,
+                relations: HashSet::from([
+                    Relation::ContainedBy(Id::None),
+                ]),
+                ..Default::default()
+            },
+            Asset {
+                id: Id::CsType { name: "MyStruct".into(), namespace: Some("My.Namespace".into()) },
+                asset_type: AssetType::CsType,
+                relations: HashSet::from([
+                    Relation::ContainedBy(Id::None),
+                ]),
+                ..Default::default()
+            },
+            Asset {
+                id: Id::CsType { name: "MyEnum".into(), namespace: Some("My.Namespace".into()) },
+                asset_type: AssetType::CsType,
+                relations: HashSet::from([
+                    Relation::ContainedBy(Id::None),
+                ]),
+                ..Default::default()
+            },
+            Asset {
+                id: Id::CsType { name: "IMyInterface".into(), namespace: Some("My.Namespace".into()) },
+                asset_type: AssetType::CsType,
+                relations: HashSet::from([
+                    Relation::ContainedBy(Id::None),
+                ]),
+                ..Default::default()
+            },
+            Asset {
+                id: Id::CsType { name: "InnerClass".into(), namespace: Some("My.Namespace.InnerNamespace".into()) },
+                asset_type: AssetType::CsType,
+                relations: HashSet::from([
+                    Relation::ContainedBy(Id::None),
+                ]),
+                ..Default::default()
+            },
+        ];
+        for (i, a) in more_assets.iter().enumerate() {
+            assert_eq!(a, more_reference.get(i).unwrap());
+        }
 
-        // assert_eq!(broker.requests(), &HashSet::from([
-        //     type_broker::TypeRequest::new(
-        //         &Id::CsType { name: "MyClass".into(), namespace: Some("MyNamespace".into()) },
-        //         "LocalizedString",
-        //         &["System", "MyNamespace"]
-        //     ),
-        //     type_broker::TypeRequest::new(
-        //         &Id::CsType { name: "MyClass".into(), namespace: Some("MyNamespace".into()) },
-        //         "LocStringCache",
-        //         &["System", "MyNamespace"]
-        //     ),
-        // ]));
+        let requests_ref = HashSet::from([
+            type_broker::TypeRequest::new(
+                &Id::CsType { name: "MyClass".into(), namespace: Some("My.Namespace".into()) },
+                "LocalizedString",
+                &vec!["My.OtherNamespace".into()],
+                true,
+            ),
+            type_broker::TypeRequest::new(
+                &Id::CsType { name: "MyClass".into(), namespace: Some("My.Namespace".into()) },
+                "LocalizedString",
+                &vec!["My.DifferentNamespace".into(), "My.Namespace".into()],
+                false,
+            ),
+            type_broker::TypeRequest::new(
+                &Id::CsType { name: "MyClass".into(), namespace: Some("My.Namespace".into()) },
+                "LocStringCache",
+                &vec!["My.DifferentNamespace".into(), "My.Namespace".into()],
+                false,
+            ),
+        ]);
+        assert_eq!(broker.requests().difference(&requests_ref).collect::<Vec<&type_broker::TypeRequest>>(), Vec::<&type_broker::TypeRequest>::new());
 
         Ok(())
     }
