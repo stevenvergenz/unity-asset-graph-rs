@@ -1,11 +1,20 @@
-use std::fmt::{Display, Formatter, Result};
+use std::{
+    fmt::{Display, Formatter, Result},
+    borrow::Borrow,
+    hash::Hash,
+};
 use serde::{Deserialize, Serialize};
+
+pub trait QualifiedName: Debug+Clone+PartialEq+Eq+PartialOrd+Ord+Hash+Serialize+Deserialize {
+    fn parts(&self) -> &[impl Borrow<str>];
+}
 
 /// A C# qualified name, represented as parts in reverse order (e.g. ["MyClass", "MyNamespace"])
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub enum QualifiedName {
+pub enum QualifiedNameOwned {
     Partial(Vec<String>),
     Full(Vec<String>),
+
 }
 
 impl QualifiedName {
@@ -61,14 +70,16 @@ impl QualifiedName {
     /// The containing type or namespace of this name
     pub fn container(&self) -> Self {
         match self {
-            Self::Partial(p) => Self::Partial(p.iter().skip(1).collect()),
-            Self::Full(p) => Self::Full(p.iter().skip(1).collect()),
+            Self::Partial(p) => Self::Partial(p.iter().skip(1).cloned().collect()),
+            Self::Full(p) => Self::Full(p.iter().skip(1).cloned().collect()),
         }
     }
 
     /// Produce a less qualified name by removing the given namespace. Returns None if this name is not within the namespace.
     pub fn without_namespace(&self, ns: &Self) -> Option<Self> {
-        let mut parts = self.0.clone();
+        let mut parts = match self {
+            Self::Partial(p) | Self::Full(p) => p.clone(),
+        };
         for ns_part in ns.iter().rev() {
             if parts.last() == Some(ns_part) {
                 parts.pop();
@@ -76,32 +87,31 @@ impl QualifiedName {
                 return None;
             }
         }
-        Some(Self::new(parts))
+        Some(Self::Partial(parts))
     }
 
     /// Produce a namespace by removing the given local name. Returns None if the local name is not within this namespace.
     pub fn without_local(&self, local: &Self) -> Option<Self> {
-        let mut parts = self.0.clone();
-        for local_part in local.iter() {
-            if parts.first() == Some(local_part) {
-                parts.remove(0);
-            } else {
-                return None;
-            }
-        }
-        if parts.is_empty() {
-            Some(Self::global().clone())
+        if !self.iter().take(local.len()).eq(local.iter()) {
+            None
         } else {
-            Some(Self::new(parts))
+            let parts = self.iter().skip(local.len()).cloned().collect();
+            match self {
+                Self::Partial(_) => Some(Self::Partial(parts)),
+                Self::Full(_) => Some(Self::Full(parts)),
+            }
         }
     }
 
     pub fn local(&self) -> Self {
-        Self::new(vec![self.0[0].clone()])
+        Self::Partial(self.iter().take(1).cloned().collect())
     }
 
     pub fn namespace(&self) -> Self {
-        Self(self.0[1..].to_vec())
+        match self {
+            Self::Partial(p) => Self::Partial(p.iter().skip(1).cloned().collect()),
+            Self::Full(p) => Self::Full(p.iter().skip(1).cloned().collect()),
+        }
     }
 
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &String> {
