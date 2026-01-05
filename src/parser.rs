@@ -11,14 +11,7 @@ mod loc_resource;
 #[cfg(feature = "locstring")]
 mod loc_override;
 
-pub use csharp::{
-    type_broker::TypeBroker, 
-    qualified_name::{
-        QualifiedName,
-        FullyQualifiedName,
-        PartiallyQualifiedName,
-    },
-};
+pub use csharp::{type_broker::TypeBroker, qualified_name::QualifiedName};
 
 use std::{
     sync::{Arc, Mutex},

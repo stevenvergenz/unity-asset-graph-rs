@@ -1,10 +1,5 @@
 use std::collections::HashSet;
-use crate::{
-    Database, 
-    Id, 
-    Relation, 
-    parser::{PartiallyQualifiedName, FullyQualifiedName},
-};
+use crate::{Database, Id, Relation, parser::QualifiedName};
 
 /// A reference to a type within the file being parsed. May be locally declared, fully qualified, or ambiguous and need brokering.
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -12,15 +7,15 @@ pub struct TypeRequest {
     /// The asset that uses the type
     requester: Id,
     /// The un- or partially-qualified name of the type being requested from the broker
-    partial_name: PartiallyQualifiedName,
+    partial_name: QualifiedName,
     /// The namespaces in scope during the reference
-    scoped_namespaces: Vec<FullyQualifiedName>,
+    scoped_namespaces: Vec<QualifiedName>,
     /// Indicates that the given type is already fully qualified, and does not need namespace brokering
     fully_qualified: bool,
 }
 
 impl TypeRequest {
-    pub fn new(requester: &Id, name: PartiallyQualifiedName, scoped_namespaces: &[FullyQualifiedName], fully_qualified: bool) -> Self {
+    pub fn new(requester: &Id, name: QualifiedName, scoped_namespaces: &[QualifiedName], fully_qualified: bool) -> Self {
         Self {
             requester: requester.clone(),
             partial_name: name.into(),
