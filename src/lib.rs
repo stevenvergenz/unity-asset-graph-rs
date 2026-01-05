@@ -11,4 +11,4 @@ pub use asset::{Asset, BoundAsset, Relation};
 pub use asset_type::AssetType;
 pub use id::Id;
 pub use storage::{DatabaseFile, Magic, Version};
-pub use parser::QualifiedName;
+pub use parser::{FullyQualifiedName, PartiallyQualifiedName, QualifiedName};

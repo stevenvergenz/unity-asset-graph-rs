@@ -1,3 +1,8 @@
+mod full;
+mod partial;
+pub use full::{FullyQualifiedName, /*FullyQualifiedNameRef*/};
+pub use partial::{PartiallyQualifiedName, /* PartiallyQualifiedNameRef */};
+
 use std::{
     fmt::{Display, Formatter, Result},
     borrow::Borrow,
@@ -5,108 +10,37 @@ use std::{
 };
 use serde::{Deserialize, Serialize};
 
-pub trait QualifiedName: Eq + Ord + Hash {
-    fn parts(&self) -> &[impl Borrow<str>];
-    fn is_fully_qualified(&self) -> bool;
-}
-
 /// A C# qualified name, represented as parts in reverse order (e.g. ["MyClass", "MyNamespace"])
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct FullyQualifiedName {
-    parts: Vec<String>,
+pub trait QualifiedName {
+    fn parts(&self) -> &[String];
+    fn is_fully_qualified(&self) -> bool;
+
+    fn trim_end(&self, other: &impl Self) -> impl Self;
 }
 
-impl FullyQualifiedName {
-    pub fn new(parts: Vec<String>) -> Self {
-        Self { parts }
+
+impl PartialEq for dyn QualifiedName { 
+    fn eq(&self, other: &Self) -> bool {
+        self.is_fully_qualified() == other.is_fully_qualified() && self.parts() == other.parts()
     }
 }
 
-impl FromIterator<String> for FullyQualifiedName {
-    fn from_iter<T: IntoIterator<Item = String>>(iter: T) -> Self {
-        Self { parts: iter.into_iter().collect() }
-    }
-}
+impl Eq for dyn QualifiedName {}
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct PartiallyQualifiedName {
-    parts: Vec<String>,
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-pub struct FullyQualifiedNameRef<'a> {
-    parts: Vec<&'a str>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-pub struct PartiallyQualifiedNameRef<'a> {
-    parts: Vec<&'a str>,
-}
-
-impl QualifiedName for FullyQualifiedName {
-    fn is_fully_qualified(&self) -> bool {
-        true
-    }
-    fn parts(&self) -> &[impl Borrow<str>] {
-        &self.parts
-    }
-}
-
-impl<'a> QualifiedName for FullyQualifiedNameRef<'a> {
-    fn is_fully_qualified(&self) -> bool {
-        true
-    }
-    fn parts(&self) -> &[impl Borrow<str>] {
-        &self.parts
-    }
-}
-
-impl QualifiedName for PartiallyQualifiedName {
-    fn is_fully_qualified(&self) -> bool {
-        false
-    }
-    fn parts(&self) -> &[impl Borrow<str>] {
-        &self.parts
-    }
-}
-
-impl<'a> QualifiedName for PartiallyQualifiedNameRef<'a> {
-    fn is_fully_qualified(&self) -> bool {
-        false
-    }
-    fn parts(&self) -> &[impl Borrow<str>] {
-        &self.parts
-    }
-}
-
-impl<'a> From<&'a FullyQualifiedName> for FullyQualifiedNameRef<'a> {
-    fn from(value: &'a FullyQualifiedName) -> Self {
-        Self {
-            parts: value.parts.iter().map(|s| s.as_str()).collect(),
+impl Display for dyn QualifiedName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        let mut iter = self.parts().iter();
+        if let Some(p) = iter.next() {
+            write!(f, "{p}")?;
         }
-    }
-}
-
-impl<'a> Into<FullyQualifiedName> for FullyQualifiedNameRef<'a> {
-    fn into(self) -> FullyQualifiedName {
-        FullyQualifiedName { parts: self.parts.iter().map(|s| String::from(*s)).collect() }
-    }
-}
-
-impl<'a> From<&'a PartiallyQualifiedName> for PartiallyQualifiedNameRef<'a> {
-    fn from(value: &'a PartiallyQualifiedName) -> Self {
-        Self {
-            parts: value.parts.iter().map(|s| s.as_str()).collect(),
+        for p in iter {
+            write!(f, ".{p}")?;
         }
+        Ok(())
     }
 }
 
-impl<'a> Into<PartiallyQualifiedName> for PartiallyQualifiedNameRef<'a> {
-    fn into(self) -> PartiallyQualifiedName {
-        PartiallyQualifiedName { parts: self.parts.iter().map(|s| String::from(*s)).collect() }
-    }
-}
-
+/*
 impl QualifiedName {
     pub fn new(parts: Vec<String>) -> Self {
         if parts.is_empty() {
@@ -210,49 +144,4 @@ impl QualifiedName {
         }
     }
 }
-
-impl From<Vec<String>> for QualifiedName {
-    fn from(value: Vec<String>) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<&[&str]> for QualifiedName {
-    fn from(value: &[&str]) -> Self {
-        Self::from_parts(value.iter().cloned())
-    }
-}
-
-impl From<&str> for QualifiedName {
-    fn from(value: &str) -> Self {
-        Self::from_parts(value.split('.').rev())
-    }
-}
-
-// todo: split in place instead of cloning slices
-impl From<String> for QualifiedName {
-    fn from(value: String) -> Self {
-        Self::from(value.as_str())
-    }
-}
-
-impl Display for QualifiedName {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        let mut first = true;
-        for part in self.0.iter().rev() {
-            if first {
-                write!(f, "{}", part)?;
-                first = false;
-            } else {
-                write!(f, ".{}", part)?;
-            }
-        }
-        Ok(())
-    }
-}
-
-impl PartialEq<&str> for QualifiedName {
-    fn eq(&self, other: &&str) -> bool {
-        other.split('.').rev().eq(self.iter())
-    }
-}
+*/
