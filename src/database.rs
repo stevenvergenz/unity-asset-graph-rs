@@ -5,7 +5,7 @@ use std::{
 };
 use serde::{Deserialize, Serialize};
 use crate::{
-    asset::Asset, asset_type::AssetType, id::Id, parser::ParseError,
+    QualifiedName, asset::Asset, asset_type::AssetType, id::Id, parser::ParseError
 };
 
 mod roots;
@@ -122,6 +122,7 @@ impl Database {
     }
 
     pub fn assets_by_name(&self, name: &str) -> impl Iterator<Item = &Asset> {
+        let qn = QualifiedName::from(name);
         self.assets.values().filter(move |a| {
             if let Some(p) = a.path.as_ref()
                 && let Some(file_name) = p.file_name()
@@ -129,7 +130,7 @@ impl Database {
                 && name_str == name {
                 true
             }
-            else if let Id::CsType(a_name) = &a.id && a_name.local() == name {
+            else if let Id::CsType(a_name) = &a.id && a_name.ends_with(&qn) {
                 true
             }
             else {

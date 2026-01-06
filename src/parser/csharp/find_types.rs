@@ -59,9 +59,9 @@ pub fn find_types(
     'a: while let Some(m) = iter.next() {
         // this using directive defines an alias
         if let Some(alias) = m.nodes_for_capture_index(USING_QUERY.capture_index_for_name("alias").unwrap()).next()
-        && let Some(fqn_node) = m.nodes_for_capture_index(USING_QUERY.capture_index_for_name("type").unwrap()).next() {
-            let fqn = fqn_node.utf8_text(buffer).unwrap();
-            aliases.insert(alias, Id::CsType(QualifiedName::from_parts(fqn.split('.').rev())));
+        && let Some(qn_node) = m.nodes_for_capture_index(USING_QUERY.capture_index_for_name("type").unwrap()).next() {
+            let fqn = qn_node.utf8_text(buffer).unwrap();
+            aliases.insert(alias, QualifiedName::from(fqn));
         }
         // this using directive is a normal namespace import
         else {
@@ -76,7 +76,7 @@ pub fn find_types(
                     break 'a;
                 }
             }
-            usings.push(QualifiedName::from_parts(text.split('.').rev()));
+            usings.push(QualifiedName::from(text));
         }
     }
 
@@ -93,18 +93,17 @@ pub fn find_types(
 
         // find all other types used by the declared type
         for usage in find_usages(decl.node, buffer) {
+            // add the containing type's namespaces to the using list
+            let mut usings = usings.clone();
+            for i in 0 .. decl.name.len() - 1 {
+                let ns = QualifiedName::from_iter(decl.name.iter().take(i + 1).map(|s| s.as_str()));
+                usings.push(ns);
+            }
+
             // the usage matches a known alias
             if let Some(t) = aliases.get(&usage) {
-                broker.lock().unwrap().request_known(&a.id, t);
+                broker.lock().unwrap().request(&a.id, t.clone(), &usings);
             } else {
-                // add the containing type's namespaces to the using list
-                let mut usings = usings.clone();
-                let mut ns = decl.name.clone();
-                while !ns.is_global() {
-                    usings.push(ns.clone());
-                    ns = ns.namespace();
-                }
-
                 let name = resolve_qualified_name(usage, buffer);
                 if name != decl.name {
                     broker.lock().unwrap().request(&a.id, name, &usings);
@@ -173,11 +172,11 @@ fn resolve_declaration(decl_node: Node, buffer: &[u8]) -> QualifiedName {
     let mut node = Some(decl_node);
     while let Some(n) = node && n.kind() != "compilation_unit" {
         if DECL_SUBTYPES.contains(&n.kind()) {
-            name_parts.push(n.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap());
+            name_parts.insert(0, n.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap());
         } else if n.kind() == "namespace_declaration" {
             let ns = n.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap();
-            for part in ns.split('.').rev() {
-                name_parts.push(part);
+            for (i, part) in ns.split('.').enumerate() {
+                name_parts.insert(i, part);
             }
         }
         node = n.parent();
@@ -187,8 +186,8 @@ fn resolve_declaration(decl_node: Node, buffer: &[u8]) -> QualifiedName {
         for child in root.children(&mut root.walk()) {
             if child.kind() == "file_scoped_namespace_declaration" {
                 let ns = child.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap();
-                for part in ns.split('.').rev() {
-                    name_parts.push(part);
+                for (i, part) in ns.split('.').enumerate() {
+                    name_parts.insert(i, part);
                 }
             }
         }
@@ -199,10 +198,10 @@ fn resolve_declaration(decl_node: Node, buffer: &[u8]) -> QualifiedName {
         panic!("Failed to resolve declaration name");
     }
 
-    QualifiedName::from_parts(name_parts.into_iter())
+    QualifiedName::from_iter(name_parts)
 }
 
-static USAGE_QUERY: LazyLock<Query> = LazyLock::new(|| {
+static TYPE_USAGE_QUERY: LazyLock<Query> = LazyLock::new(|| {
     Query::new(&super::CS_LANG, r#"
         [
             (type/identifier) @type
@@ -231,27 +230,94 @@ static USAGE_QUERY: LazyLock<Query> = LazyLock::new(|| {
     "#).expect("Failed to compile usage query")
 });
 
+static VAR_USAGE_QUERY: LazyLock<Query> = LazyLock::new(|| {
+    Query::new(&super::CS_LANG, r#"
+        (member_access_expression
+            expression: [(identifier) (generic_name) (qualified_name)] @name
+        )
+    "#).expect("Failed to compile variable usage query")
+});
+
+/// Find all type usages within the given type definition node.
 fn find_usages<'a>(
     node: Node<'a>, 
     buffer: &'a [u8], 
 ) -> Vec<Node<'a>> {
     let mut usages = vec![];
 
+    // find hard type usages
     let mut qcursor = QueryCursor::new();
-    let mut iter = qcursor.matches(&USAGE_QUERY, node, buffer);
+    let mut iter = qcursor.matches(&TYPE_USAGE_QUERY, node, buffer);
     while let Some(m) = iter.next() {
         let n = m.captures[0].node;
         if n == node {
             continue;
         }
-
-        if let Ok(text) = n.utf8_text(buffer) && text.ends_with("SelectorClosedWithItems") {
-            _debug(n, buffer);
-        }
-        
         usages.push(n);
     }
+
+    // find static member usages
+    let mut qcursor = QueryCursor::new();
+    let mut iter = qcursor.matches(&VAR_USAGE_QUERY, node, buffer);
+    'u: while let Some(m) = iter.next() {
+        let usage = m.captures[0].node;
+        let name = usage.utf8_text(buffer).unwrap();
+        println!("Found member access usage: {name}");
+        
+        // find containing scope
+        let mut cache = HashMap::new();
+        let mut parent_scope = resolve_parent_scope(usage);
+        while let Some(parent) = parent_scope && parent != node {
+            // find declared variables in this scope
+            let vars = find_vars_in_scope(parent, buffer, &mut cache);
+            println!("Vars in scope {}: {vars:?}", parent.kind());
+
+            // if the name matches a declared variable, it's not a type usage
+            if vars.contains(&name) {
+                continue 'u;
+            }
+
+            parent_scope = resolve_parent_scope(parent);
+        }
+
+        usages.push(usage);
+    }
     usages
+}
+
+fn resolve_parent_scope(node: Node) -> Option<Node> {
+    let mut node = node.parent();
+    while let Some(n) = node {
+        if matches!(n.kind(), "block" | "method_declaration" | "declaration_list") {
+            return Some(n);
+        }
+        node = n.parent();
+    }
+    None
+}
+
+static VAR_DECL_QUERY: LazyLock<Query> = LazyLock::new(|| {
+    Query::new(&super::CS_LANG, r#"
+        (variable_declarator
+            name: (identifier) @name
+        )
+    "#).expect("Failed to compile variable usage query")
+});
+
+fn find_vars_in_scope<'map, 'buf>(node: Node<'buf>, buffer: &'buf [u8], cache: &'map mut HashMap<Node<'buf>, Vec<&'buf str>>) -> &'map Vec<&'buf str> {
+    if !cache.contains_key(&node) {
+        let mut vars = vec![];
+        let mut q = QueryCursor::new();
+        let mut iter = q.matches(&VAR_DECL_QUERY, node, buffer);
+        while let Some(m) = iter.next() {
+            let n = m.captures[0].node;
+            let name = n.utf8_text(buffer).unwrap();
+            vars.push(name);
+        }
+        cache.insert(node, vars);
+    }
+
+    cache.get(&node).unwrap()
 }
 
 fn resolve_qualified_name(node: Node, buffer: &[u8]) -> QualifiedName {
@@ -260,10 +326,14 @@ fn resolve_qualified_name(node: Node, buffer: &[u8]) -> QualifiedName {
             QualifiedName::from(node.utf8_text(buffer).unwrap())
         },
         "qualified_name" => {
-            QualifiedName::from_name(
-                node.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap(),
-                resolve_qualified_name(node.child_by_field_name("qualifier").unwrap(), buffer),
-            )
+            let mut qn = QualifiedName::from(
+                resolve_qualified_name(
+                    node.child_by_field_name("qualifier").unwrap(),
+                    buffer,
+                ),
+            );
+            qn.push(node.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap().to_string());
+            qn
         },
         "generic_name" => {
             let id = node.named_child(0).unwrap().utf8_text(buffer).unwrap();

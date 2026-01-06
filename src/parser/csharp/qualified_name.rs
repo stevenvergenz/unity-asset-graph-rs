@@ -1,127 +1,63 @@
 use std::{
     fmt::{Display, Formatter, Result},
-    borrow::Borrow,
     hash::Hash,
 };
 use serde::{Deserialize, Serialize};
 
-pub trait QualifiedName: Debug+Clone+PartialEq+Eq+PartialOrd+Ord+Hash+Serialize+Deserialize {
-    fn parts(&self) -> &[impl Borrow<str>];
-}
-
-/// A C# qualified name, represented as parts in reverse order (e.g. ["MyClass", "MyNamespace"])
+/// A C# qualified name, represented as parts in order (e.g. ["MyNamespace", "MyClass"])
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub enum QualifiedNameOwned {
-    Partial(Vec<String>),
-    Full(Vec<String>),
-
-}
+pub struct QualifiedName(pub Vec<String>);
 
 impl QualifiedName {
-    pub fn global() -> Self {
-        Self::Full(vec![])
-    }
-
     pub fn new(parts: Vec<String>) -> Self {
         if parts.is_empty() {
             panic!("QualifiedName must have at least one part");
         }
-        Self::Partial(parts)
+        Self(parts)
     }
 
-    pub fn from_iter(parts: impl Iterator<Item = impl Into<String>>) -> Self {
-        Self::new(parts.map(|s| s.into()).collect())
+    pub fn starts_with(&self, other: &QualifiedName) -> bool {
+        self.0[..other.0.len()] == other.0[..]
     }
 
-    pub fn from_name(name: impl Into<String>, namespace: Self) -> Self {
-        match namespace {
-            Self::Partial(mut p) => {
-                p.insert(0, name.into());
-                Self::Partial(p)
-            },
-            Self::Full(mut p) => {
-                p.insert(0, name.into());
-                Self::Full(p)
-            },
+    pub fn ends_with(&self, other: &QualifiedName) -> bool {
+        self.0[self.0.len() - other.0.len()..] == other.0[..]
+    }
+
+    pub fn trim_start(&mut self, other: &QualifiedName) {
+        if self.starts_with(other) {
+            self.0 = self.0[other.0.len()..].to_vec();
         }
     }
 
-    pub fn resolve(self) -> Self {
-        let parts = match self {
-            Self::Partial(p) | Self::Full(p) => p,
-        };
-        Self::Full(parts)
-    }
-
-    pub fn concat(narrow: &Self, broad: &Self) -> Self {
-        let new = Self::from_iter(narrow.iter().chain(broad.iter()));
-        if let Self::Full(_) = broad {
-            new.resolve()
-        } else {
-            new
+    pub fn trim_end(&mut self, other: &QualifiedName) {
+        if self.ends_with(other) {
+            let new_len = self.0.len() - other.0.len();
+            self.0.truncate(new_len);
         }
-    }
-
-    /// Whether another name is within this namespace
-    pub fn contains(&self, other: &Self) -> bool {
-        self.iter().rev().eq(other.iter().rev().take(self.len()))
-    }
-
-    /// The containing type or namespace of this name
-    pub fn container(&self) -> Self {
-        match self {
-            Self::Partial(p) => Self::Partial(p.iter().skip(1).cloned().collect()),
-            Self::Full(p) => Self::Full(p.iter().skip(1).cloned().collect()),
-        }
-    }
-
-    /// Produce a less qualified name by removing the given namespace. Returns None if this name is not within the namespace.
-    pub fn without_namespace(&self, ns: &Self) -> Option<Self> {
-        let mut parts = match self {
-            Self::Partial(p) | Self::Full(p) => p.clone(),
-        };
-        for ns_part in ns.iter().rev() {
-            if parts.last() == Some(ns_part) {
-                parts.pop();
-            } else {
-                return None;
-            }
-        }
-        Some(Self::Partial(parts))
-    }
-
-    /// Produce a namespace by removing the given local name. Returns None if the local name is not within this namespace.
-    pub fn without_local(&self, local: &Self) -> Option<Self> {
-        if !self.iter().take(local.len()).eq(local.iter()) {
-            None
-        } else {
-            let parts = self.iter().skip(local.len()).cloned().collect();
-            match self {
-                Self::Partial(_) => Some(Self::Partial(parts)),
-                Self::Full(_) => Some(Self::Full(parts)),
-            }
-        }
-    }
-
-    pub fn local(&self) -> Self {
-        Self::Partial(self.iter().take(1).cloned().collect())
-    }
-
-    pub fn namespace(&self) -> Self {
-        match self {
-            Self::Partial(p) => Self::Partial(p.iter().skip(1).cloned().collect()),
-            Self::Full(p) => Self::Full(p.iter().skip(1).cloned().collect()),
-        }
-    }
-
-    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &String> {
-        self.0.iter()
     }
 
     pub fn len(&self) -> usize {
-        match self {
-            Self::Partial(p) | Self::Full(p) => p.len()
-        }
+        self.0.len()
+    }
+
+    pub fn push(&mut self, part: String) {
+        self.0.push(part);
+    }
+
+    pub fn pop(&mut self) -> Option<String> {
+        self.0.pop()
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, String> {
+        self.0.iter()
+    }
+}
+
+impl<'a> FromIterator<&'a str> for QualifiedName {
+    fn from_iter<T: IntoIterator<Item = &'a str>>(iter: T) -> Self {
+        let parts: Vec<String> = iter.into_iter().map(|s| s.to_string()).collect();
+        QualifiedName::new(parts)
     }
 }
 
@@ -133,13 +69,13 @@ impl From<Vec<String>> for QualifiedName {
 
 impl From<&[&str]> for QualifiedName {
     fn from(value: &[&str]) -> Self {
-        Self::from_parts(value.iter().cloned())
+        Self::from_iter(value.iter().cloned())
     }
 }
 
 impl From<&str> for QualifiedName {
     fn from(value: &str) -> Self {
-        Self::from_parts(value.split('.').rev())
+        Self::from_iter(value.split('.'))
     }
 }
 
@@ -152,14 +88,12 @@ impl From<String> for QualifiedName {
 
 impl Display for QualifiedName {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        let mut first = true;
-        for part in self.0.iter().rev() {
-            if first {
-                write!(f, "{}", part)?;
-                first = false;
-            } else {
-                write!(f, ".{}", part)?;
-            }
+        let mut iter = self.0.iter();
+        if let Some(p) = iter.next() {
+            write!(f, "{}", p)?;
+        }
+        for part in iter {
+            write!(f, ".{}", part)?;
         }
         Ok(())
     }
@@ -167,6 +101,6 @@ impl Display for QualifiedName {
 
 impl PartialEq<&str> for QualifiedName {
     fn eq(&self, other: &&str) -> bool {
-        other.split('.').rev().eq(self.iter())
+        other.split('.').eq(self.0.iter().map(String::as_str))
     }
 }

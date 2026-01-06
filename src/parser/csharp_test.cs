@@ -13,11 +13,18 @@ namespace My.Namespace {
             key: "PrefixedKey",
             formatArgs: "Some other text");
 
-        private static LocalizedString locstringBad = LocStringCache.Get(someKey);
+        private const string someKey = "RefKey";
 
-        private static LocalizedString locstringBadPrefix = LocStringCache.Get(key: someKey);
+        private static LocalizedString locstringRef = LocStringCache.Get(someKey);
+
+        private static LocalizedString locstringRefPrefix = LocStringCache.Get(key: someKey);
 
         public int MyProperty { get; set; }
+
+        public static void MyMethod()
+        {
+            LocStringCache.Deep.FakeProp = someKey.Length;
+        }
     }
 
     struct MyStruct {

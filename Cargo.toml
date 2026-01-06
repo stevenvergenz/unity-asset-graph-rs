@@ -18,3 +18,6 @@ serde_yml = "0.0.12"
 tree-sitter = "0.25.9"
 tree-sitter-c-sharp = "0.23.1"
 uuid = { version = "1.17.0", features = ["serde", "v5"] }
+
+[dev-dependencies]
+pretty_assertions = "1.4.1"

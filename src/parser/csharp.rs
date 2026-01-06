@@ -87,22 +87,22 @@ fn parse_buffer(
 mod test {
     use super::*;
     use std::collections::HashSet;
+    use pretty_assertions::assert_eq;
     use crate::{AssetType, Id, Relation, QualifiedName};
 
+    const CODE: &[u8] = include_bytes!("./csharp_test.cs");
+
     #[test]
-    fn test_parse_csharp() -> Result<(), ParseError> {
-        let code = include_str!("./csharp_test.cs");
+    fn test_parse_decls() -> Result<(), ParseError> {
         let mut file_asset = Asset {
             id: Id::Guid(uuid::Uuid::nil()),
             asset_type: AssetType::CsFile,
             ..Default::default()
         };
         let broker = Arc::new(Mutex::new(TypeBroker::new()));
-        println!("Running parser");
-        let type_assets = parse_buffer(code.as_bytes(), &mut file_asset, &"no_path".into(), &broker)?;
-        println!("Done");
-        let broker = Arc::into_inner(broker).unwrap().into_inner().unwrap();
+        let type_assets = parse_buffer(CODE, &mut file_asset, &"no_path".into(), &broker)?;
 
+        println!("Found assets: {:?}", type_assets.iter().map(|a| &a.id).collect::<Vec<&Id>>());
         assert_eq!(file_asset.relations, HashSet::from([
             Relation::Uses(Id::Loc("NormalKey".into())),
             Relation::Uses(Id::Loc("PrefixedKey".into()))
@@ -116,6 +116,11 @@ mod test {
             ]),
             ..Default::default()
         };
+        assert_eq!(
+            type_assets.iter().find(|a| a.id == class_t.id).expect("Missing class asset"),
+            &class_t,
+        );
+
         let delegate_t = Asset {
             id: Id::CsType(QualifiedName::from("My.Namespace.MyClass.MyDelegate")),
             asset_type: AssetType::CsType,
@@ -125,6 +130,12 @@ mod test {
             ]),
             ..Default::default()
         };
+        
+        assert_eq!(
+            type_assets.iter().find(|a| a.id == delegate_t.id).expect("Missing delegate asset"),
+            &delegate_t,
+        );
+
         let underclass_t = Asset {
             id: Id::CsType(QualifiedName::from("My.Namespace.MyClass.UnderClass")),
             asset_type: AssetType::CsType,
@@ -134,6 +145,11 @@ mod test {
             ]),
             ..Default::default()
         };
+        
+        assert_eq!(
+            type_assets.iter().find(|a| a.id == underclass_t.id).expect("Missing underclass asset"),
+            &underclass_t,
+        );
 
         let struct_t = Asset {
             id: Id::CsType(QualifiedName::from("My.Namespace.MyStruct")),
@@ -143,6 +159,11 @@ mod test {
             ]),
             ..Default::default()
         };
+        
+        assert_eq!(
+            type_assets.iter().find(|a| a.id == struct_t.id).expect("Missing struct asset"),
+            &struct_t,
+        );
 
         let enum_t = Asset {
             id: Id::CsType(QualifiedName::from("My.Namespace.MyEnum")),
@@ -152,6 +173,11 @@ mod test {
             ]),
             ..Default::default()
         };
+        
+        assert_eq!(
+            type_assets.iter().find(|a| a.id == enum_t.id).expect("Missing enum asset"),
+            &enum_t,
+        );
 
         let interface_t = Asset {
             id: Id::CsType(QualifiedName::from("My.Namespace.IMyInterface")),
@@ -161,6 +187,11 @@ mod test {
             ]),
             ..Default::default()
         };
+        
+        assert_eq!(
+            type_assets.iter().find(|a| a.id == interface_t.id).expect("Missing interface asset"),
+            &interface_t,
+        );
 
         let inner_t = Asset {
             id: Id::CsType(QualifiedName::from("My.Namespace.InnerNamespace.InnerClass")),
@@ -170,34 +201,55 @@ mod test {
             ]),
             ..Default::default()
         };
+        
+        assert_eq!(
+            type_assets.iter().find(|a| a.id == inner_t.id).expect("Missing inner class asset"),
+            &inner_t,
+        );
 
-        let types_expected = vec![class_t, delegate_t, underclass_t, struct_t, enum_t, interface_t, inner_t];
+        assert_eq!(type_assets.len(), 7);
 
-        for (i, a) in types_expected.iter().enumerate() {
-            assert_eq!(a, type_assets.get(i).expect("Missing asset"));
-        }
+        Ok(())
+    }
 
-        let requests_ref = HashSet::from([
-            type_broker::TypeRequest::new(
-                &Id::CsType(QualifiedName::from("My.Namespace.MyClass")),
-                QualifiedName::from("LocalizedString"),
-                &vec!["My.OtherNamespace".into()],
-                true,
-            ),
-            type_broker::TypeRequest::new(
-                &Id::CsType(QualifiedName::from("My.Namespace.MyClass")),
-                QualifiedName::from("LocalizedString"),
-                &vec!["My.DifferentNamespace".into(), "My.Namespace".into()],
-                false,
-            ),
-            type_broker::TypeRequest::new(
-                &Id::CsType(QualifiedName::from("My.Namespace.MyClass")),
-                QualifiedName::from("LocStringCache"),
-                &vec!["My.DifferentNamespace".into(), "My.Namespace".into()],
-                false,
-            ),
-        ]);
-        assert_eq!(broker.requests(), &requests_ref);
+    #[test]
+    fn test_parse_refs() -> Result<(), ParseError> {
+        let mut file_asset = Asset {
+            id: Id::Guid(uuid::Uuid::nil()),
+            asset_type: AssetType::CsFile,
+            ..Default::default()
+        };
+        let broker = Arc::new(Mutex::new(TypeBroker::new()));
+        parse_buffer(CODE, &mut file_asset, &"no_path".into(), &broker)?;
+        let broker = Arc::into_inner(broker).unwrap().into_inner().unwrap();
+
+        println!("Type requests: {:#?}", broker.requests().iter().collect::<Vec<&type_broker::TypeRequest>>());
+        
+        let scoped_ns = vec![
+            QualifiedName::from("My.DifferentNamespace"),
+            QualifiedName::from("My"),
+            QualifiedName::from("My.Namespace"),
+        ];
+
+        assert!(broker.requests().contains(&type_broker::TypeRequest::new(
+            &Id::CsType(QualifiedName::from("My.Namespace.MyClass")),
+            QualifiedName::from("My.OtherNamespace.LocalizedString"),
+            &scoped_ns,
+        )));
+
+        assert!(broker.requests().contains(&type_broker::TypeRequest::new(
+            &Id::CsType(QualifiedName::from("My.Namespace.MyClass")),
+            QualifiedName::from("LocalizedString"),
+            &scoped_ns,
+        )));
+
+        assert!(broker.requests().contains(&type_broker::TypeRequest::new(
+            &Id::CsType(QualifiedName::from("My.Namespace.MyClass")),
+            QualifiedName::from("LocStringCache"),
+            &scoped_ns,
+        )));
+        
+        assert_eq!(broker.requests().len(), 3);
 
         Ok(())
     }

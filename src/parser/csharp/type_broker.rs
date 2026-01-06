@@ -10,25 +10,24 @@ pub struct TypeRequest {
     partial_name: QualifiedName,
     /// The namespaces in scope during the reference
     scoped_namespaces: Vec<QualifiedName>,
-    /// Indicates that the given type is already fully qualified, and does not need namespace brokering
-    fully_qualified: bool,
 }
 
 impl TypeRequest {
-    pub fn new(requester: &Id, name: QualifiedName, scoped_namespaces: &[QualifiedName], fully_qualified: bool) -> Self {
+    pub fn new(requester: &Id, name: QualifiedName, scoped_namespaces: &[QualifiedName]) -> Self {
         Self {
             requester: requester.clone(),
             partial_name: name.into(),
             scoped_namespaces: scoped_namespaces.to_vec(),
-            fully_qualified,
         }
     }
 
     /// Determines if the given type ID satisfies this type request.
     pub fn satisfied_by(&self, type_id: &Id) -> bool {
         if let Id::CsType(fqn) = type_id {
-            if let Some(ns) = fqn.without_local(&self.partial_name) {
-                self.scoped_namespaces.contains(&ns)
+            if fqn.ends_with(&self.partial_name) {
+                let mut fqn = fqn.clone();
+                fqn.trim_end(&self.partial_name);
+                self.scoped_namespaces.contains(&fqn)
             } else {
                 false
             }
@@ -40,12 +39,7 @@ impl TypeRequest {
 
 impl Into<Id> for TypeRequest {
     fn into(self) -> Id {
-        if self.fully_qualified {
-            Id::CsType(self.partial_name)
-        }
-        else {
-            panic!()
-        }
+        Id::CsType(self.partial_name)
     }
 }
 
@@ -62,35 +56,13 @@ impl TypeBroker {
     }
 
     pub fn request(&mut self, requester: &Id, type_name: QualifiedName, scoped_namespaces: &[QualifiedName]) {
-        self.requests.insert(TypeRequest::new(requester, type_name, scoped_namespaces, false));
-    }
-
-    pub fn request_known(&mut self, requester: &Id, known: &Id) {
-        if let Id::CsType(name) = known {
-            self.requests.insert(TypeRequest::new(
-                requester, 
-                name.clone(), 
-                &[], 
-                true,
-            ));
-        }
-        else {
-            panic!("Id type not supported");
-        }
+        self.requests.insert(TypeRequest::new(requester, type_name, scoped_namespaces));
     }
 
     pub fn fulfill(&mut self, id: &Id, database: &mut Database) {
         for req in self.requests.extract_if(|req| req.satisfied_by(id)) {
             if let Some(asset) = database.asset_mut(&req.requester) {
                 asset.relations.insert(Relation::Uses(id.clone()));
-            }
-        }
-    }
-
-    pub fn fulfill_known(&mut self, database: &mut Database) {
-        for req in self.requests.extract_if(|req| req.fully_qualified) {
-            if let Some(asset) = database.asset_mut(&req.requester) {
-                asset.relations.insert(Relation::Uses(req.into()));
             }
         }
     }

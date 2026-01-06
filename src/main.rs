@@ -336,7 +336,7 @@ fn find_outside_refs(db_path: &str, container_id: Vec<Uuid>, container_path: Vec
             .and_then(|a| a.path.as_ref());
 
         let name = if let Id::CsType(name) = &outside.id {
-            name.local()
+            name.iter().last().unwrap()
         } else {
             panic!("Expected CsType asset");
         };
@@ -366,7 +366,7 @@ fn find_outside_refs(db_path: &str, container_id: Vec<Uuid>, container_path: Vec
                 .and_then(|a| a.path.as_ref());
 
             let name = if let Id::CsType(name) = &user.id {
-                name.local()
+                name.iter().last().unwrap()
             } else {
                 panic!("Expected CsType asset");
             };
