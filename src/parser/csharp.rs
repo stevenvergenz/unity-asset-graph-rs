@@ -1,4 +1,4 @@
-//mod queries;
+mod queries;
 mod find_types;
 pub mod type_broker;
 pub mod qualified_name;

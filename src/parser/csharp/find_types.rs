@@ -12,6 +12,7 @@ use tree_sitter::{
 use crate::{
     Asset, AssetType, Id, Relation, parser::{ParseError, QualifiedName, TypeBroker}
 };
+use super::queries as queries;
 
 const EXCLUDED_NS: [&str; 3] = [
     "System.",
@@ -23,21 +24,6 @@ struct TypeInfo<'a> {
     node: Node<'a>,
     name: QualifiedName,
 }
-
-static USING_QUERY: LazyLock<Query> = LazyLock::new(|| {
-    Query::new(&super::CS_LANG, r#"
-[
-    (using_directive
-        name: (identifier) @alias
-        (type) @type
-    )
-    (using_directive
-        (qualified_name) @type
-        !name
-    )
-]"#
-    ).expect("Failed to compile using query")
-});
 
 /// Find type declarations and usages in the given syntax tree, updating the provided asset and type broker accordingly.
 pub fn find_types(
@@ -55,17 +41,17 @@ pub fn find_types(
 
     // first, gather using directives
     let mut q = QueryCursor::new();
-    let mut iter = q.matches(&USING_QUERY, tree.root_node(), buffer);
+    let mut iter = q.matches(&queries::USING_QUERY, tree.root_node(), buffer);
     'a: while let Some(m) = iter.next() {
         // this using directive defines an alias
-        if let Some(alias) = m.nodes_for_capture_index(USING_QUERY.capture_index_for_name("alias").unwrap()).next()
-        && let Some(qn_node) = m.nodes_for_capture_index(USING_QUERY.capture_index_for_name("type").unwrap()).next() {
+        if let Some(alias) = m.nodes_for_capture_index(queries::USING_QUERY.capture_index_for_name("alias").unwrap()).next()
+        && let Some(qn_node) = m.nodes_for_capture_index(queries::USING_QUERY.capture_index_for_name("type").unwrap()).next() {
             let fqn = qn_node.utf8_text(buffer).unwrap();
             aliases.insert(alias, QualifiedName::from(fqn));
         }
         // this using directive is a normal namespace import
         else {
-            let text = m.nodes_for_capture_index(USING_QUERY.capture_index_for_name("type").unwrap())
+            let text = m.nodes_for_capture_index(queries::USING_QUERY.capture_index_for_name("type").unwrap())
                 .next()
                 .unwrap()
                 .utf8_text(buffer)
@@ -117,21 +103,6 @@ pub fn find_types(
     Ok(())
 }
 
-/// Query to find class, struct, enum, and interface declarations.
-/// Syntax tree identifiers come from https://github.com/tree-sitter/tree-sitter-c-sharp/blob/master/src/node-types.json
-static DECL_QUERY: LazyLock<Query> = LazyLock::new(|| {
-    Query::new(&super::CS_LANG, r#"
-        [
-            (class_declaration)
-            (delegate_declaration)
-            (enum_declaration)
-            (interface_declaration)
-            (record_declaration)
-            (struct_declaration)
-        ] @decl"#
-    ).expect("Failed to compile class query")
-});
-
 /// This really should work, but for some reason it doesn't
 // static DECL_SUBTYPES: LazyLock<Vec<&str>> = LazyLock::new(|| {
 //     super::CS_LANG.subtypes_for_supertype(
@@ -156,7 +127,7 @@ fn find_declarations<'a, 'b>(
 
     // loop over all type declarations
     let mut q = QueryCursor::new();
-    let mut iter = q.matches(&DECL_QUERY, tree.root_node(), buffer);
+    let mut iter = q.matches(&queries::TYPE_DECL, tree.root_node(), buffer);
     while let Some(m) = iter.next() {
         decls.push(TypeInfo {
             node: m.captures[0].node,
@@ -201,43 +172,6 @@ fn resolve_declaration(decl_node: Node, buffer: &[u8]) -> QualifiedName {
     QualifiedName::from_iter(name_parts)
 }
 
-static TYPE_USAGE_QUERY: LazyLock<Query> = LazyLock::new(|| {
-    Query::new(&super::CS_LANG, r#"
-        [
-            (type/identifier) @type
-            (type/generic_name) @type
-            (type/qualified_name
-                qualifier: [(identifier) (qualified_name) (generic_name)]
-            ) @type
-            (type/tuple_type
-                (tuple_element
-                    type: [(identifier) (qualified_name) (generic_name)] @type
-                )
-            )
-            (type/scoped_type
-                type: [(identifier) (qualified_name) (generic_name)] @type
-            )
-            (type/array_type 
-                type: [(identifier) (qualified_name) (generic_name)] @type
-            )
-            (type/nullable_type 
-                type: [(identifier) (qualified_name) (generic_name)] @type
-            )
-            (type/ref_type 
-                type: [(identifier) (qualified_name) (generic_name)] @type
-            )
-        ]
-    "#).expect("Failed to compile usage query")
-});
-
-static VAR_USAGE_QUERY: LazyLock<Query> = LazyLock::new(|| {
-    Query::new(&super::CS_LANG, r#"
-        (member_access_expression
-            expression: [(identifier) (generic_name) (qualified_name)] @name
-        )
-    "#).expect("Failed to compile variable usage query")
-});
-
 /// Find all type usages within the given type definition node.
 fn find_usages<'a>(
     node: Node<'a>, 
@@ -247,7 +181,7 @@ fn find_usages<'a>(
 
     // find hard type usages
     let mut qcursor = QueryCursor::new();
-    let mut iter = qcursor.matches(&TYPE_USAGE_QUERY, node, buffer);
+    let mut iter = qcursor.matches(&queries::TYPE_USAGE, node, buffer);
     while let Some(m) = iter.next() {
         let n = m.captures[0].node;
         if n == node {
@@ -258,7 +192,7 @@ fn find_usages<'a>(
 
     // find static member usages
     let mut qcursor = QueryCursor::new();
-    let mut iter = qcursor.matches(&VAR_USAGE_QUERY, node, buffer);
+    let mut iter = qcursor.matches(&queries::VAR_USAGE, node, buffer);
     'u: while let Some(m) = iter.next() {
         let usage = m.captures[0].node;
         let name = usage.utf8_text(buffer).unwrap();
@@ -296,26 +230,11 @@ fn resolve_parent_scope(node: Node) -> Option<Node> {
     None
 }
 
-static VAR_DECL_QUERY: LazyLock<Query> = LazyLock::new(|| {
-    Query::new(&super::CS_LANG, r#"(
-        .
-        [
-            (field_declaration
-                (variable_declaration
-                    (variable_declarator
-                        name: (identifier) @name
-                    )
-                )
-            )
-        ]
-    )"#).expect("Failed to compile variable usage query")
-});
-
 fn find_vars_in_scope<'map, 'buf>(node: Node<'buf>, buffer: &'buf [u8], cache: &'map mut HashMap<Node<'buf>, Vec<&'buf str>>) -> &'map Vec<&'buf str> {
     if !cache.contains_key(&node) {
         let mut vars = vec![];
         let mut q = QueryCursor::new();
-        let mut iter = q.matches(&VAR_DECL_QUERY, node, buffer);
+        let mut iter = q.matches(&queries::VAR_DECL, node, buffer);
         while let Some(m) = iter.next() {
             let n = m.captures[0].node;
             let name = n.utf8_text(buffer).unwrap();
