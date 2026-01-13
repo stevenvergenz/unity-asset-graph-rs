@@ -54,12 +54,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let paths = find_back_path::<40>(
-        &["variable_declarator", "parameter"],
+    let paths: Vec<Vec<&String>> = find_back_path::<40>(
+        &["identifier"],
         &[
-            "type_declaration", 
-            "preproc_if", "preproc_elif", "preproc_else", 
-            "anonymous_method_expression", "lambda_expression", "local_function_statement",
+            "expression",
+            "preproc_if", "preproc_elif", "preproc_else",
+            "block", "type", "type_declaration", "declaration", "function_pointer_type",
+            "lambda_expression", "anonymous_method_expression", "local_function_statement",
         ],
         &types, 
         &backmap);

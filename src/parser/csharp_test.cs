@@ -1,11 +1,14 @@
 using X;
 using XYC = X.Y.Class;
-using static X.Y.Class.StaticField;
+using static X.Y.Z.Class.StaticField;
+using System.Text;
 namespace A;
 
 namespace B {
     public class ClassB {
         public delegate void Delegate(int x);
+
+        public class InnerClass {}
 
         public int A;
 
@@ -31,9 +34,17 @@ namespace B {
             set => A = value;
         }
 
-        public void Method(in int a, string b, out int c)
+        public string Method(in int a, string b, out int c)
         {
-            
+            var poolobj = ObjectPool<InnerClass>.Get();
+            using (StringBuilder sb = StringBuilderCache.Get())
+            {
+                for (int i = 0; i < 100; i++)
+                {
+                    sb.AppendFormat("({0})", i);
+                }
+                return sb.ToString();
+            }
         }
     }
 
