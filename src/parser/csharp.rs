@@ -1,5 +1,5 @@
 mod queries;
-mod scope;
+mod structure;
 mod find_types;
 pub mod type_broker;
 pub mod qualified_name;

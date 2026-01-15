@@ -171,30 +171,30 @@ const VAR_DECL: &str = concatcp!(
     "[", VAR_DECL_PARTS[0], VAR_DECL_PARTS[1], VAR_DECL_PARTS[2], VAR_DECL_PARTS[3], VAR_DECL_PARTS[4], "] @var_decl"
 );
 
-/// Matches all usages of types. Captures the type name "type", including any generic args.
+/// Matches all usages of types. Captures the type name "type_use", including any generic args.
 /// Note: Includes types in `using alias = T` directives. These must be excluded manually.
 const TYPE_USAGE: &str = r#"
-    (type/identifier) @type
+    (type/identifier) @type_use
     (type/qualified_name
         qualifier: [(identifier) (qualified_name) (generic_name)]
-    ) @type
-    (type/generic_name) @type
+    ) @type_use
+    (type/generic_name) @type_use
     (type/tuple_type
         (tuple_element
-            type: [(identifier) (qualified_name) (generic_name)] @type
+            type: [(identifier) (qualified_name) (generic_name)] @type_use
         )
     )
     (type/scoped_type
-        type: [(identifier) (qualified_name) (generic_name)] @type
+        type: [(identifier) (qualified_name) (generic_name)] @type_use
     )
     (type/array_type 
-        type: [(identifier) (qualified_name) (generic_name)] @type
+        type: [(identifier) (qualified_name) (generic_name)] @type_use
     )
     (type/nullable_type 
-        type: [(identifier) (qualified_name) (generic_name)] @type
+        type: [(identifier) (qualified_name) (generic_name)] @type_use
     )
     (type/ref_type 
-        type: [(identifier) (qualified_name) (generic_name)] @type
+        type: [(identifier) (qualified_name) (generic_name)] @type_use
     )
 "#;
 
@@ -208,7 +208,7 @@ const VAR_USAGE: &str = r#"
     )
 "#;
 
-/// Matches everything we're looking for. Captures "ns_use", "type_decl", "var_decl", "id", "type", and "var_use".
+/// Matches everything we're looking for. Captures "ns_use", "type_decl", "var_decl", "id", "type_use", and "var_use".
 pub const QUERY_ALL: &str = concatcp!(
     NS_USAGE,
     TYPE_DECL,
@@ -231,7 +231,6 @@ mod test {
         parser.parse(CODE, None).expect("Failed to read code")
     });
 
-    
     fn collect_set<'c, 't>(
         mut iter: impl StreamingIterator<Item = QueryMatch<'c, 't>>, 
         field: u32, 
