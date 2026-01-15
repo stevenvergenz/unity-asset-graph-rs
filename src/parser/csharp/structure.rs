@@ -61,7 +61,6 @@ pub fn evaluate_structure<'t, 'b>(tree: &'t Tree, buffer: &'b [u8]) -> Result<St
     let f_var_decl = get_field(&QUERY, "var_decl")?;
     let f_var_use = get_field(&QUERY, "var_use")?;
     let f_id = get_field(&QUERY, "id")?;
-    println!("ns_use = {f_ns_use}, type_decl = {f_type_decl}, type_use = {f_type_use}, var_decl = {f_var_decl}, var_use = {f_var_use}");
 
     let mut cursor = QueryCursor::new();
     let mut iter = cursor.matches(&QUERY, tree.root_node(), buffer);
@@ -73,6 +72,7 @@ pub fn evaluate_structure<'t, 'b>(tree: &'t Tree, buffer: &'b [u8]) -> Result<St
             } else if c.index == f_type_decl {
                 evaluate_type_decl(c.node, m, buffer, &mut results)?;
             } else if c.index == f_type_use {
+                evaluate_type_use(c.node, m, buffer, &mut results)?;
             } else if c.index == f_var_decl {
             } else if c.index == f_var_use {
             } else if c.index != f_id {
@@ -136,28 +136,51 @@ fn evaluate_type_decl<'t, 'b>(
     node: Node<'t>, qmatch: &QueryMatch<'_, 't>, buffer: &'b [u8], result: &mut StructureInfo<'b, 't>,
 ) -> Result<(), Error<'b>> {
     let ns_kind = CS_LANG.id_for_node_kind("namespace_declaration", true);
-    let gns_kind = CS_LANG.id_for_node_kind("file_scoped_namespace_declaration", true);
+    let fsns_kind = CS_LANG.id_for_node_kind("file_scoped_namespace_declaration", true);
     let f_id = get_field(&QUERY, "id")?;
 
-    let mut id = match qmatch.nodes_for_capture_index(f_id).next() {
-        Some(id) => QualifiedName::try_from(id, buffer).map_err(|e| Error::BadName(e))?,
-        None => return Err(Error::Unknown(node.utf8_text(buffer).map_err(|_| Error::Utf8)?)),
+    let mut name = match qmatch.nodes_for_capture_index(f_id).next() {
+        Some(id) => {
+            QualifiedName::try_from(id, buffer).map_err(|e| Error::BadName(e))?
+        },
+        None => {
+            return Err(Error::Unknown(node.utf8_text(buffer).map_err(|_| Error::Utf8)?))
+        },
     };
 
     // find full namespace of the declared type
+
+    // walk up ancestor nodes, prepending any namespace declarations we come across
     let mut i = node;
     while let Some(ancestor) = i.parent() {
         if ancestor.kind_id() == ns_kind
-        && let Some(name) = ancestor.child_by_field_name("name") {
-            let ns = QualifiedName::try_from(name, buffer).map_err(|e| Error::BadName(e))?;
-            id = QualifiedName::concat(ns, id);
+        && let Some(ns) = ancestor.child_by_field_name("name") {
+            let ns = QualifiedName::try_from(ns, buffer).map_err(|e| Error::BadName(e))?;
+            name = QualifiedName::concat(ns, name);
         }
 
         i = ancestor;
     }
 
-    result.type_declarations.insert(id);
+    // if there is a file-scoped namespace declaration, add it as well
+    let root = i;
+    let mut cursor = root.walk();
+    if let Some(fsns) = root.named_children(&mut cursor)
+        .filter(|c| c.kind_id() == fsns_kind)
+        .next()
+    && let Some(ns) = fsns.child_by_field_name("name")
+    && let Ok(ns) = QualifiedName::try_from(ns, buffer) {
+        name = QualifiedName::concat(ns, name);
+    }
 
+    result.type_declarations.insert(name);
+
+    Ok(())
+}
+
+fn evaluate_type_use<'t, 'b>(
+    node: Node<'t>, qmatch: &QueryMatch<'_, 't>, buffer: &'b [u8], result: &mut StructureInfo<'b, 't>,
+) -> Result<(), Error<'b>> {
     Ok(())
 }
 
@@ -187,6 +210,10 @@ mod test {
 
         assert_eq!(result.aliases, HashMap::from([
             ("StaticField", "X.Y.Z.Class"),
+        ]));
+
+        assert_eq!(result.type_declarations, HashSet::from([
+            QualifiedName::from("A.B.ClassB"), QualifiedName::from("A.B.C.ClassC"),
         ]));
 
         assert_eq!(result.id_scopes, HashMap::from([
