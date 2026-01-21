@@ -208,10 +208,25 @@ fn evaluate_var_use<'t, 'b>(
 
 #[cfg(test)]
 mod test {
-    use std::sync::LazyLock;
-    use tree_sitter::{Parser};
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::LazyLock,
+    };
+    use tree_sitter::{Parser, Point};
     use crate::parser::csharp::CS_LANG;
     use super::*;
+
+    #[derive(Debug, Hash, PartialEq, Eq)]
+    struct NodeLike {
+        kind: &'static str,
+        start_position: Point,
+    }
+
+    impl PartialEq<Node<'_>> for NodeLike {
+        fn eq(&self, other: &Node<'_>) -> bool {
+            self.kind == other.kind() && self.start_position == other.start_position()
+        }
+    }
 
     const CODE: &[u8] = include_bytes!("../csharp_test.cs");
     static TREE: LazyLock<Tree> = LazyLock::new(|| {
@@ -222,9 +237,7 @@ mod test {
 
     #[test]
     fn evaluate_structure() -> Result<(), Error<'static>> {
-        let result = super::evaluate_structure(&TREE, CODE)?;
-
-        let root = TREE.root_node();
+        let mut result = super::evaluate_structure(&TREE, CODE)?;
 
         assert_eq!(result.namespaces, HashSet::from([
             "X", "System.Text",
@@ -238,9 +251,48 @@ mod test {
             QualifiedNameRef::from("A.B.ClassB"), QualifiedNameRef::from("A.B.C.ClassC"),
         ]));
 
-        assert_eq!(result.id_scopes, HashMap::from([
-            (root, HashSet::from(["StaticField"])),
-        ]));
+        let scopes = HashMap::from([
+            // file scope
+            (NodeLike { kind: "compilation_unit", start_position: Point { row: 0, column: 0 }},
+                HashSet::from(["XYC", "StaticField"])
+            ),
+            // namespace B
+            (NodeLike { kind: "declaration_list", start_position: Point { row: 6, column: 12 }},
+                HashSet::from(["ClassB"]),
+            ),
+            // ClassB
+            (NodeLike { kind: "declaration_list", start_position: Point { row: 7, column: 24 }},
+                HashSet::from(["Ap", "InnerClass", "B", "Method", "Delegate", "A"]),
+            ),
+            // ClassB[x]
+            (NodeLike { kind: "indexer_declaration", start_position: Point { row: 16, column: 8 }},
+                HashSet::from(["x"]),
+            ),
+            // ClassB.Method decl
+            (NodeLike { kind: "method_declaration", start_position: Point { row: 36, column: 8 }},
+                HashSet::from(["a", "b", "c"]),
+            ),
+            // ClassB.Method body
+            (NodeLike { kind: "block", start_position: Point { row: 37, column: 8 }},
+                HashSet::from(["c", "bp", "sb", "b", "poolobj"]),
+            ),
+            // for statement
+            (NodeLike { kind: "for_statement", start_position: Point { row: 45, column: 16 }},
+                HashSet::from(["i"]),
+            ),
+            // namespace C
+            (NodeLike { kind: "declaration_list", start_position: Point { row: 54, column: 16 }},
+                HashSet::from(["ClassC"]),
+            ),
+        ]);
+
+        for (scope, ids) in scopes.iter() {
+            let (_, node_ids) = result.id_scopes
+                .extract_if(|node, _| scope == node)
+                .next().expect(&format!("No matching scope for {scope:?}"));
+            assert_eq!(ids, &node_ids);
+        }
+        assert_eq!(result.id_scopes, HashMap::new());
 
         Ok(())
     }
