@@ -235,9 +235,6 @@ const VAR_DECL: &str = concatcp!(
 const VAR_USAGE: &str = r#"
     (expression/identifier) @var_use
     (expression/generic_name) @var_use
-    (member_access_expression
-        expression: [(identifier) (generic_name) (qualified_name) (alias_qualified_name)] @var_use
-    )
 "#;
 
 /// Matches everything we're looking for. Captures "ns_use", "type_decl", "var_decl", "id", "type_use", and "var_use".
