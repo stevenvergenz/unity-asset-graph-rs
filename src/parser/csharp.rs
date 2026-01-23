@@ -88,7 +88,10 @@ fn parse_buffer(
 pub mod test {
     use super::*;
     use tree_sitter::{Node, Point, Tree};
-    use std::collections::HashSet;
+    use std::{
+        collections::HashSet,
+        fmt::{Display, Formatter, Result as FResult},
+    };
     use pretty_assertions::assert_eq;
     use crate::{AssetType, Id, Relation, QualifiedName};
 
@@ -144,6 +147,16 @@ pub mod test {
                 kind,
                 start_position: Point { row, column },
             }
+        }
+    }
+
+    impl Display for NodeLike {
+        fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+            write!(f, "{{ {kind} @ ({row},{column})",
+                kind = self.kind,
+                row = self.start_position.row,
+                column = self.start_position.column,
+            )
         }
     }
 

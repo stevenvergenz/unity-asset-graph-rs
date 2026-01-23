@@ -7,7 +7,6 @@ use crate::parser::csharp::qualified_name::{self, QualifiedNameRef};
 use super::{
     CS_LANG,
     queries::QUERY_ALL,
-    qualified_name::QualifiedName,
 };
 
 #[derive(Debug)]
@@ -41,10 +40,22 @@ static QUERY: LazyLock<Query> = LazyLock::new(|| {
     Query::new(&CS_LANG, QUERY_ALL).expect("Failed to compile query")
 });
 
+static F_NS_DECL: LazyLock<u32> = LazyLock::new(|| QUERY.capture_index_for_name("ns_decl").expect("Failed to get field ns_decl"));
+static F_NS_USE: LazyLock<u32> = LazyLock::new(|| QUERY.capture_index_for_name("ns_use").expect("Failed to get field ns_use"));
+static F_TYPE_DECL: LazyLock<u32> = LazyLock::new(|| QUERY.capture_index_for_name("type_decl").expect("Failed to get field type_decl"));
+static F_TYPE_USE: LazyLock<u32> = LazyLock::new(|| QUERY.capture_index_for_name("type_use").expect("Failed to get field type_use"));
+static F_VAR_DECL: LazyLock<u32> = LazyLock::new(|| QUERY.capture_index_for_name("var_decl").expect("Failed to get field var_decl"));
+static F_VAR_USE: LazyLock<u32> = LazyLock::new(|| QUERY.capture_index_for_name("var_use").expect("Failed to get field var_use"));
+static F_ID: LazyLock<u32> = LazyLock::new(|| QUERY.capture_index_for_name("id").expect("Failed to get field id"));
+static F_ALIAS: LazyLock<u32> = LazyLock::new(|| QUERY.capture_index_for_name("alias").expect("Failed to get field alias"));
+
+static K_USING: LazyLock<u16> = LazyLock::new(|| CS_LANG.id_for_node_kind("using_directive", true));
+static K_STATIC: LazyLock<u16> = LazyLock::new(|| CS_LANG.id_for_node_kind("static", false));
+
 #[derive(Default)]
 pub struct StructureInfo<'buffer, 'tree> {
     /// A map of scope nodes to alias/original names
-    pub aliases: HashMap<Node<'tree>, HashSet<(&'buffer str, &'buffer str)>>,
+    pub aliases: HashMap<Node<'tree>, HashMap<QualifiedNameRef<'buffer>, QualifiedNameRef<'buffer>>>,
 
     /// A map of scope nodes to declared namespace names
     pub ns_decl: HashMap<Node<'tree>, HashSet<QualifiedNameRef<'buffer>>>,
@@ -59,85 +70,72 @@ pub struct StructureInfo<'buffer, 'tree> {
     pub type_usages: HashMap<Node<'tree>, QualifiedNameRef<'buffer>>,
 
     /// A map of scope nodes to declared variable names
-    pub var_decl: HashMap<Node<'tree>, HashSet<&'buffer str>>,
+    pub var_decl: HashMap<Node<'tree>, HashSet<QualifiedNameRef<'buffer>>>,
 
     /// A map of usage nodes to the used variable name
     pub var_usages: HashMap<Node<'tree>, QualifiedNameRef<'buffer>>,
 }
 
 impl<'buffer, 'tree> StructureInfo<'buffer, 'tree> {
-    // pub fn resolve_type_decl_name(&self, id_node: Node<'tree>) -> QualifiedNameRef<'buffer> {
+    pub fn resolve_type_decl_name(&self, id_node: Node<'tree>) -> QualifiedNameRef<'buffer> {
+        todo!();
 
-    //     // find full namespace of the declared type
+        let ns_kind = CS_LANG.id_for_node_kind("namespace_declaration", true);
+        let fsns_kind = CS_LANG.id_for_node_kind("file_scoped_namespace_declaration", true);
+        // // find full namespace of the declared type
 
-    //     // walk up ancestor nodes, prepending any namespace declarations we come across
-    //     let mut i = scope_node;
-    //     while let Some(ancestor) = i.parent() {
-    //         if ancestor.kind_id() == ns_kind
-    //         && let Some(ns) = ancestor.child_by_field_name("name") {
-    //             let ns = QualifiedNameRef::try_from(ns, buffer).map_err(|e| Error::BadName(e))?;
-    //             name = QualifiedNameRef::concat(ns, name);
-    //         }
+        // // walk up ancestor nodes, prepending any namespace declarations we come across
+        // let mut i = scope_node;
+        // while let Some(ancestor) = i.parent() {
+        //     if ancestor.kind_id() == ns_kind
+        //     && let Some(ns) = ancestor.child_by_field_name("name") {
+        //         let ns = QualifiedNameRef::try_from(ns, buffer).map_err(|e| Error::BadName(e))?;
+        //         name = QualifiedNameRef::concat(ns, name);
+        //     }
 
-    //         i = ancestor;
-    //     }
+        //     i = ancestor;
+        // }
 
-    //     // if there is a file-scoped namespace declaration, add it as well
-    //     let root = i;
-    //     let mut cursor = root.walk();
-    //     if let Some(fsns) = root.named_children(&mut cursor)
-    //         .filter(|c| c.kind_id() == fsns_kind)
-    //         .next()
-    //     && let Some(ns) = fsns.child_by_field_name("name")
-    //     && let Ok(ns) = QualifiedNameRef::try_from(ns, buffer) {
-    //         name = QualifiedNameRef::concat(ns, name);
-    //     }
+        // // if there is a file-scoped namespace declaration, add it as well
+        // let root = i;
+        // let mut cursor = root.walk();
+        // if let Some(fsns) = root.named_children(&mut cursor)
+        //     .filter(|c| c.kind_id() == fsns_kind)
+        //     .next()
+        // && let Some(ns) = fsns.child_by_field_name("name")
+        // && let Ok(ns) = QualifiedNameRef::try_from(ns, buffer) {
+        //     name = QualifiedNameRef::concat(ns, name);
+        // }
 
-    // }
+    }
 }
 
 pub fn evaluate_structure<'t, 'b>(tree: &'t Tree, buffer: &'b [u8]) -> Result<StructureInfo<'b, 't>, Error<'b>> {
     let mut results = StructureInfo { ..Default::default() };
-
-    let f_ns_decl = get_field(&QUERY, "ns_decl")?;
-    let f_ns_use = get_field(&QUERY, "ns_use")?;
-    let f_type_decl = get_field(&QUERY, "type_decl")?;
-    let f_type_use = get_field(&QUERY, "type_use")?;
-    let f_var_decl = get_field(&QUERY, "var_decl")?;
-    let f_var_use = get_field(&QUERY, "var_use")?;
-    let f_id = get_field(&QUERY, "id")?;
-
     let mut cursor = QueryCursor::new();
     let mut iter = cursor.matches(&QUERY, tree.root_node(), buffer);
 
     while let Some(m) = iter.next() {
         for c in m.captures {
-            if c.index == f_ns_decl {
+            if c.index == *F_NS_DECL {
                 evaluate_ns_decl(c.node, m, buffer, &mut results)?;
-            } else if c.index == f_ns_use {
+            } else if c.index == *F_NS_USE {
                 evaluate_ns_usage(c.node, m, buffer, &mut results)?;
-            } else if c.index == f_type_decl {
+            } else if c.index == *F_TYPE_DECL {
                 evaluate_type_decl(c.node, m, buffer, &mut results)?;
-            } else if c.index == f_type_use {
-                evaluate_type_use(c.node, m, buffer, &mut results)?;
-            } else if c.index == f_var_decl {
+            } else if c.index == *F_TYPE_USE {
+                evaluate_type_usage(c.node, m, buffer, &mut results)?;
+            } else if c.index == *F_VAR_DECL {
                 evaluate_var_decl(c.node, m, buffer, &mut results)?;
-            } else if c.index == f_var_use {
-                evaluate_var_use(c.node, m, buffer, &mut results)?;
-            } else if c.index != f_id {
+            } else if c.index == *F_VAR_USE {
+                evaluate_var_usage(c.node, m, buffer, &mut results)?;
+            } else if c.index != *F_ID && c.index != *F_ALIAS {
                 return Err(Error::FieldId(c.index));
             }
         }
     }
 
     Ok(results)
-}
-
-fn get_field<'q, 'f>(query: &'q Query, field: &'f str) -> Result<u32, Error<'f>> {
-    match query.capture_index_for_name(field) {
-        Some(f) => Ok(f),
-        None => Err(Error::FieldName(field)),
-    }
 }
 
 fn get_root(node: Node) -> Node {
@@ -151,40 +149,50 @@ fn get_root(node: Node) -> Node {
 fn evaluate_ns_decl<'t, 'b>(
     node: Node<'t>, qmatch: &QueryMatch<'_, 't>, buffer: &'b [u8], result: &mut StructureInfo<'b, 't>,
 ) -> Result<(), Error<'b>> {
+    let id = match qmatch.nodes_for_capture_index(*F_ID).next() {
+        Some(id) => QualifiedNameRef::try_from(id, buffer).map_err(|e| Error::BadName(e))?,
+        None => return Err(Error::FieldName("id")),
+    };
+
+    result.ns_decl.entry(node).or_insert(HashSet::new()).insert(id);
     Ok(())
 }
 
 fn evaluate_ns_usage<'t, 'b>(
     scope_node: Node<'t>, qmatch: &QueryMatch<'_, 't>, buffer: &'b [u8], result: &mut StructureInfo<'b, 't>,
 ) -> Result<(), Error<'b>> {
-    let f_id = get_field(&QUERY, "id")?;
-
-    let id_node = match qmatch.nodes_for_capture_index(f_id).next() {
+    let id_node = match qmatch.nodes_for_capture_index(*F_ID).next() {
         Some(id) => id,
         None => return Err(Error::FieldName("id")),
     };
-    let id = id_node.utf8_text(buffer).map_err(|e| Error::Utf8(e))?;
+    let id = QualifiedNameRef::try_from(id_node, buffer).map_err(|e| Error::BadName(e))?;
 
-    let mut cursor = scope_node.walk();
-    let is_static = scope_node.children(&mut cursor).any(|n| n.kind() == "static");
+    let alias = match qmatch.nodes_for_capture_index(*F_ALIAS).next() {
+        Some(n) => Some(QualifiedNameRef::try_from(n, buffer).map_err(|e| Error::BadName(e))?),
+        None => None,
+    };
 
-    if is_static {
+    let decl_node = match id_node.parent() {
+        Some(p) => p,
+        None => return Err(Error::BadStaticUsing(id_node.utf8_text(buffer).map_err(|e| Error::Utf8(e))?)),
+    };
+    let mut cursor = decl_node.walk();
+    let is_static = decl_node.children(&mut cursor).any(|c| c.kind_id() == *K_STATIC);
+
+    if let Some(alias) = alias {
+        result.aliases.entry(scope_node).or_insert(HashMap::new())
+            .insert(alias, id);
+    } else if is_static {
         // `using static N.S.Type.Field;`
         // `N.S.Type`: the type actually being used when field is used
         // `Field`: the variable that refers to the type
-        let (qualtype, field) = match id.rsplit_once('.') {
-            Some(p) => p,
-            None => return Err(Error::BadStaticUsing(
-                scope_node.utf8_text(buffer).map_err(|e| Error::Utf8(e))?
-            )),
-        };
-        result.aliases.entry(scope_node).or_insert(HashSet::new())
-            .insert((field, qualtype));
-        result.var_decl.entry(scope_node).or_insert(HashSet::new())
-            .insert(field);
+        let mut qualtype = id;
+        let field = qualtype.split_off(qualtype.len() - 1);
+        result.aliases.entry(scope_node).or_insert(HashMap::new())
+            .insert(field, qualtype);
     } else {
         result.ns_usages.entry(scope_node).or_insert(HashSet::new())
-            .insert(QualifiedNameRef::try_from(id_node, buffer).map_err(|e| Error::BadName(e))?);
+            .insert(id);
     }
 
     Ok(())
@@ -193,16 +201,12 @@ fn evaluate_ns_usage<'t, 'b>(
 fn evaluate_type_decl<'t, 'b>(
     scope_node: Node<'t>, qmatch: &QueryMatch<'_, 't>, buffer: &'b [u8], result: &mut StructureInfo<'b, 't>,
 ) -> Result<(), Error<'b>> {
-    let ns_kind = CS_LANG.id_for_node_kind("namespace_declaration", true);
-    let fsns_kind = CS_LANG.id_for_node_kind("file_scoped_namespace_declaration", true);
-    let f_id = get_field(&QUERY, "id")?;
-
-    let mut name = match qmatch.nodes_for_capture_index(f_id).next() {
+    let name = match qmatch.nodes_for_capture_index(*F_ID).next() {
         Some(id) => {
             QualifiedNameRef::try_from(id, buffer).map_err(|e| Error::BadName(e))?
         },
         None => {
-            return Err(Error::Unknown(scope_node.utf8_text(buffer).map_err(|e| Error::Utf8(e))?))
+            return Err(Error::FieldName("id"));
         },
     };
 
@@ -212,31 +216,40 @@ fn evaluate_type_decl<'t, 'b>(
     Ok(())
 }
 
+fn evaluate_type_usage<'t, 'b>(
+    node: Node<'t>, _qmatch: &QueryMatch<'_, 't>, buffer: &'b [u8], result: &mut StructureInfo<'b, 't>,
+) -> Result<(), Error<'b>> {
+    // skip "using x = typename", included in ns_usage
+    if let Some(user) = node.parent() && user.kind_id() == *K_USING {
+        return Ok(());
+    }
+
+    let name = QualifiedNameRef::try_from(node, buffer).map_err(|e| Error::BadName(e))?;
+    result.type_usages.insert(node, name);
+    Ok(())
+}
 
 fn evaluate_var_decl<'t, 'b>(
     node: Node<'t>, qmatch: &QueryMatch<'_, 't>, buffer: &'b [u8], result: &mut StructureInfo<'b, 't>,
 ) -> Result<(), Error<'b>> {
-    let f_id = get_field(&QUERY, "id")?;
-    let id = match qmatch.nodes_for_capture_index(f_id).next() {
+    let id_node = match qmatch.nodes_for_capture_index(*F_ID).next() {
         Some(id) => id,
-        None => return Err(Error::Unknown(node.utf8_text(buffer).map_err(|e| Error::Utf8(e))?)),
+        None => return Err(Error::FieldName("id")),
     };
+    let id = QualifiedNameRef::try_from(id_node, buffer).map_err(|e| Error::BadName(e))?;
 
     result.var_decl.entry(node)
         .or_insert(HashSet::new())
-        .insert(id.utf8_text(buffer).map_err(|e| Error::Utf8(e))?);
+        .insert(id);
     Ok(())
 }
 
-fn evaluate_type_use<'t, 'b>(
-    node: Node<'t>, qmatch: &QueryMatch<'_, 't>, buffer: &'b [u8], result: &mut StructureInfo<'b, 't>,
-) -> Result<(), Error<'b>> {
-    Ok(())
-}
 
-fn evaluate_var_use<'t, 'b>(
-    node: Node<'t>, qmatch: &QueryMatch<'_, 't>, buffer: &'b [u8], result: &mut StructureInfo<'b, 't>,
+fn evaluate_var_usage<'t, 'b>(
+    node: Node<'t>, _qmatch: &QueryMatch<'_, 't>, buffer: &'b [u8], result: &mut StructureInfo<'b, 't>,
 ) -> Result<(), Error<'b>> {
+    let name = QualifiedNameRef::try_from(node, buffer).map_err(|e| Error::BadName(e))?;
+    result.var_usages.insert(node, name);
     Ok(())
 }
 
@@ -244,75 +257,91 @@ fn evaluate_var_use<'t, 'b>(
 mod test {
     use std::{
         collections::{HashMap, HashSet},
-        sync::LazyLock,
+        cmp::Eq,
+        hash::Hash,
+        fmt::Debug,
     };
-    use tree_sitter::{Parser, Point};
-    use crate::parser::csharp::{
-        CS_LANG,
-        test::{NodeLike, TYPE_TEST_CODE, TYPE_TEST_TREE},
-    };
+    use crate::parser::csharp::test::{NodeLike, NS_TEST_CODE, NS_TEST_TREE, TYPE_TEST_CODE, TYPE_TEST_TREE};
     use super::*;
 
-    // #[test]
-    // fn evaluate_structure() -> Result<(), Error<'static>> {
-    //     let mut result = super::evaluate_structure(&TYPE_TEST_TREE, TYPE_TEST_CODE)?;
+    fn assert_map<'t, T, U, I>(
+        actual: HashMap<Node<'t>, I>,
+        expected: HashMap<T, I>,
+    ) where T: From<Node<'t>> + PartialEq<Node<'t>> + Debug + Clone + Eq + Hash + Display,
+        U: PartialEq<U> + Debug + Eq + Hash,
+        I: IntoIterator<Item = U> + Clone {
+        let mut matched = HashSet::new();
+        let mut unexpected = HashSet::new();
 
-    //     assert_eq!(result.namespaces, HashSet::from([
-    //         "X", "System.Text",
-    //     ]));
+        for (anode, aset) in actual.into_iter() {
+            let eset = match expected.iter().find(|(nl, _)| **nl == anode) {
+                Some((n, s)) => {
+                    if !matched.insert(n.clone()) {
+                        println!("Multiple matches for {n}");
+                    }
+                    s.clone()
+                },
+                None => {
+                    unexpected.insert(T::from(anode));
+                    continue;
+                },
+            };
 
-    //     assert_eq!(result.aliases, HashMap::from([
-    //         ("StaticField", "X.Y.Z.Class"),
-    //     ]));
+            let aset = aset.into_iter().collect::<HashSet<U>>();
+            let eset = eset.into_iter().collect::<HashSet<U>>();
+            let unexpected: HashSet<&U> = aset.difference(&eset).collect();
+            let missing: HashSet<&U> = eset.difference(&aset).collect();
+            assert_eq!(unexpected, missing, "Mismatch between items under node {anode:?}");
+        }
 
-    //     assert_eq!(result.type_decl, HashSet::from([
-    //         QualifiedNameRef::from("A.B.ClassB"), QualifiedNameRef::from("A.B.C.ClassC"),
-    //     ]));
+        let missing = expected.into_keys().filter(|n| !matched.contains(n)).collect::<HashSet<T>>();
+        assert_eq!(unexpected, missing, "Mismatch between node lists");
+    }
 
-    //     let scopes = HashMap::from([
-    //         // file scope
-    //         (NodeLike { kind: "compilation_unit", start_position: Point { row: 0, column: 0 }},
-    //             HashSet::from(["XYC", "StaticField"])
-    //         ),
-    //         // namespace B
-    //         (NodeLike { kind: "declaration_list", start_position: Point { row: 6, column: 12 }},
-    //             HashSet::from(["ClassB"]),
-    //         ),
-    //         // ClassB
-    //         (NodeLike { kind: "declaration_list", start_position: Point { row: 7, column: 24 }},
-    //             HashSet::from(["Ap", "InnerClass", "B", "Method", "Delegate", "A"]),
-    //         ),
-    //         // ClassB[x]
-    //         (NodeLike { kind: "indexer_declaration", start_position: Point { row: 16, column: 8 }},
-    //             HashSet::from(["x"]),
-    //         ),
-    //         // ClassB.Method decl
-    //         (NodeLike { kind: "method_declaration", start_position: Point { row: 36, column: 8 }},
-    //             HashSet::from(["a", "b", "c"]),
-    //         ),
-    //         // ClassB.Method body
-    //         (NodeLike { kind: "block", start_position: Point { row: 37, column: 8 }},
-    //             HashSet::from(["c", "bp", "sb", "b", "poolobj"]),
-    //         ),
-    //         // for statement
-    //         (NodeLike { kind: "for_statement", start_position: Point { row: 45, column: 16 }},
-    //             HashSet::from(["i"]),
-    //         ),
-    //         // namespace C
-    //         (NodeLike { kind: "declaration_list", start_position: Point { row: 54, column: 16 }},
-    //             HashSet::from(["ClassC"]),
-    //         ),
-    //     ]);
+    #[test]
+    fn evaluate_structure_ns() {
+        let result = super::evaluate_structure(&NS_TEST_TREE, NS_TEST_CODE)
+            .expect("Evaluation failed");
 
-    //     for (scope, ids) in scopes.iter() {
-    //         let (_, node_ids) = result.var_decl
-    //             .extract_if(|node, _| scope == node)
-    //             .next().expect(&format!("No matching scope for {scope:?}"));
-            
-    //         assert_eq!(ids, &node_ids);
-    //     }
-    //     assert_eq!(result.var_decl, HashMap::new());
+        assert_map(result.ns_decl, HashMap::from([
+            (NodeLike::new("compilation_unit", 0, 0), HashSet::from([
+                QualifiedNameRef::from("L1"),
+            ])),
+            (NodeLike::new("declaration_list", 6, 0), HashSet::from([
+                QualifiedNameRef::from("L2"),
+            ])),
+        ]));
 
-    //     Ok(())
-    // }
+        assert_map(result.ns_usages, HashMap::from([
+            (NodeLike::new("compilation_unit", 0, 0), HashSet::from([
+                QualifiedNameRef::from("Ns0"),
+            ])),
+            (NodeLike::new("declaration_list", 6, 0), HashSet::from([
+                QualifiedNameRef::from("Ns1"),
+            ])),
+            (NodeLike::new("declaration_list", 12, 4), HashSet::from([
+                QualifiedNameRef::from("Ns2"),
+            ])),
+        ]));
+
+        assert_map(result.aliases, HashMap::from([
+            (NodeLike::new("compilation_unit", 0, 0), HashMap::from([
+                (QualifiedNameRef::from("InnerType"), QualifiedNameRef::from("Ns0")),
+                (QualifiedNameRef::from("ns0a"), QualifiedNameRef::from("Ns0.InnerNs")),
+            ])),
+            (NodeLike::new("declaration_list", 6, 0), HashMap::from([
+                (QualifiedNameRef::from("InnerType"), QualifiedNameRef::from("Ns1")),
+                (QualifiedNameRef::from("ns1a"), QualifiedNameRef::from("Ns1.InnerNs")),
+            ])),
+            (NodeLike::new("declaration_list", 12, 4), HashMap::from([
+                (QualifiedNameRef::from("InnerType"), QualifiedNameRef::from("Ns2")),
+                (QualifiedNameRef::from("ns2a"), QualifiedNameRef::from("Ns2.InnerNs")),
+            ])),
+        ]));
+
+        assert_eq!(result.type_decl, HashMap::new());
+        assert_eq!(result.type_usages, HashMap::new());
+        assert_eq!(result.var_decl, HashMap::new());
+        assert_eq!(result.var_usages, HashMap::new());
+    }
 }

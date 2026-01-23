@@ -92,6 +92,11 @@ impl<'a> QualifiedNameRef<'a> {
         self.0.pop().map(|p| p.name)
     }
 
+    /// Splits the name into two at the given index. [0, index) is left here, [index, len) is in the returned name
+    pub fn split_off(&mut self, index: usize) -> Self {
+        Self(self.0.split_off(index))
+    }
+
     pub fn iter(&self) -> std::slice::Iter<'_, NamePartRef<'a>> {
         self.0.iter()
     }
@@ -129,6 +134,12 @@ impl<'a> From<&'a str> for QualifiedNameRef<'a> {
     }
 }
 
+impl<'a> PartialEq<str> for QualifiedNameRef<'a> {
+    fn eq(&self, other: &str) -> bool {
+        self.iter().eq(other.split('.'))
+    }
+}
+
 impl<'a> Display for QualifiedNameRef<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         let mut iter = self.0.iter();
@@ -139,12 +150,6 @@ impl<'a> Display for QualifiedNameRef<'a> {
             write!(f, ".{}", part)?;
         }
         Ok(())
-    }
-}
-
-impl<'a> PartialEq<str> for QualifiedNameRef<'a> {
-    fn eq(&self, other: &str) -> bool {
-        self.iter().eq(other.split('.'))
     }
 }
 

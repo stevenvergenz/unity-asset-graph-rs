@@ -23,18 +23,26 @@ const NS_DECL: &str = r#"
 /// Finds all the "normal" namespace import directives. Captures the directive "ns_use" and the namespace "id".
 /// NOTE: Includes "using static" directives, which are not namespace imports. Must account for these manually.
 const NS_USAGE: &str = r#"
-    (compilation_unit
+    (compilation_unit [
+        (using_directive
+            name: (identifier) @alias
+            [(qualified_name) (identifier)] @id
+        )
         (using_directive
             [(qualified_name) (identifier)] @id
             !name
         )
-    ) @ns_use
-    (declaration_list
+    ]) @ns_use
+    (declaration_list [
+        (using_directive
+            name: (identifier) @alias
+            [(qualified_name) (identifier)] @id
+        )
         (using_directive
             [(qualified_name) (identifier)] @id
             !name
         )
-    ) @ns_use
+    ]) @ns_use
 "#;
 
 /// Find all type declarations, and capture the type ID "id"
@@ -152,7 +160,7 @@ const PARAM_DECL_ID: &str = r#"
     )
 "#;
 
-const VAR_DECL_PARTS: [&str; 5] = [
+const VAR_DECL_PARTS: [&str; 4] = [
     // "normal" variables in a code block
     formatcp!(r#"
         (block [
@@ -173,22 +181,6 @@ const VAR_DECL_PARTS: [&str; 5] = [
         )
     "#),
 
-    // file-scoped "using" alias and static type declarations
-    formatcp!(r#"
-        (compilation_unit [
-            (using_directive
-                name: (identifier) @id
-            )
-            (using_directive
-                "static"
-                !name
-                (qualified_name
-                    name: (identifier) @id
-                )
-            )
-        ])
-    "#),
-
     // identifiers declared in a namespace or type body, i.e. type/field/property/method names
     formatcp!(r#"
         (declaration_list [
@@ -196,14 +188,6 @@ const VAR_DECL_PARTS: [&str; 5] = [
             (event_field_declaration {VAR_DECL_ID})
             (property_declaration name: (identifier) @id)
             (method_declaration name: (identifier) @id)
-            (using_directive name: (identifier) @id)
-            (using_directive
-                "static"
-                !name
-                (qualified_name
-                    name: (identifier) @id
-                )
-            )
         ])
     "#),
 
@@ -227,7 +211,7 @@ const VAR_DECL_PARTS: [&str; 5] = [
 
 /// Matches all declarations of all types of variables. Captures the variable identifier "id" and its scope "var_decl"
 const VAR_DECL: &str = concatcp!(
-    "[", VAR_DECL_PARTS[0], VAR_DECL_PARTS[1], VAR_DECL_PARTS[2], VAR_DECL_PARTS[3], VAR_DECL_PARTS[4], "] @var_decl"
+    "[", VAR_DECL_PARTS[0], VAR_DECL_PARTS[1], VAR_DECL_PARTS[2], VAR_DECL_PARTS[3], "] @var_decl"
 );
 
 /// Matches all uses of variables, which will include some type references not caught by `TYPE_USAGE`. Filter against
@@ -349,6 +333,12 @@ mod test {
                 ("ns_use", NodeLike::new("compilation_unit", 0, 0)),
                 ("id", NodeLike::new("identifier", 1, 6)),
             ]),
+            // using ns0a = Ns0.InnerNs
+            HashMap::from([
+                ("ns_use", NodeLike::new("compilation_unit", 0, 0)),
+                ("alias", NodeLike::new("identifier", 2, 6)),
+                ("id", NodeLike::new("qualified_name", 2, 13)),
+            ]),
             // using static Ns0.InnerType
             HashMap::from([
                 ("ns_use", NodeLike::new("compilation_unit", 0, 0)),
@@ -359,6 +349,12 @@ mod test {
                 ("ns_use", NodeLike::new("declaration_list", 6, 0)),
                 ("id", NodeLike::new("identifier", 7, 10)),
             ]),
+            // using ns1a = Ns1.InnerNs
+            HashMap::from([
+                ("ns_use", NodeLike::new("declaration_list", 6, 0)),
+                ("alias", NodeLike::new("identifier", 8, 10)),
+                ("id", NodeLike::new("qualified_name", 8, 17)),
+            ]),
             // using static Ns1.InnerType
             HashMap::from([
                 ("ns_use", NodeLike::new("declaration_list", 6, 0)),
@@ -368,6 +364,12 @@ mod test {
             HashMap::from([
                 ("ns_use", NodeLike::new("declaration_list", 12, 4)),
                 ("id", NodeLike::new("identifier", 13, 14)),
+            ]),
+            // using ns2a = Ns2.InnerNs
+            HashMap::from([
+                ("ns_use", NodeLike::new("declaration_list", 12, 4)),
+                ("alias", NodeLike::new("identifier", 14, 14)),
+                ("id", NodeLike::new("qualified_name", 14, 21)),
             ]),
             // using static Ns2.InnerType
             HashMap::from([
@@ -450,16 +452,6 @@ mod test {
         let mut cursor = QueryCursor::new();
         let iter = cursor.matches(&query, VAR_TEST_TREE.root_node(), VAR_TEST_CODE);
         assert_matches(&query, iter, vec![
-            // X
-            HashMap::from([
-                ("var_decl", NodeLike::new("compilation_unit", 0, 0)),
-                ("id", NodeLike::new("identifier", 0, 6)),
-            ]),
-            // Y
-            HashMap::from([
-                ("var_decl", NodeLike::new("declaration_list", 3, 0)),
-                ("id", NodeLike::new("identifier", 5, 10)),
-            ]),
             // Field
             HashMap::from([
                 ("var_decl", NodeLike::new("declaration_list", 10, 4)),
