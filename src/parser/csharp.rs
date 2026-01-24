@@ -33,6 +33,7 @@ pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>, broker: &Arc<Mute
         Err(e) => return Err(ParseError {
             path: path.clone(),
             message: format!("Failed to read C# file: {}", e),
+            inner: Some(Box::new(e)),
         }),
     };
 
@@ -41,14 +42,16 @@ pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>, broker: &Arc<Mute
         Err(e) => return Err(ParseError {
             path: path.clone(),
             message: format!("Failed to read C# file metadata: {}", e),
+            inner: Some(Box::new(e)),
         }),
     };
 
     let mut buf = Vec::with_capacity(len);
-    if file.read_to_end(&mut buf).is_err() {
+    if let Err(e) = file.read_to_end(&mut buf) {
         return Err(ParseError {
             path: path.clone(),
             message: "Failed to read C# file".into(),
+            inner: Some(Box::new(e)),
         });
     }
 
@@ -73,6 +76,7 @@ fn parse_buffer(
         None => return Err(ParseError {
             path: path.clone(),
             message: "Failed to parse C# file".into(),
+            ..Default::default()
         }),
     };
 

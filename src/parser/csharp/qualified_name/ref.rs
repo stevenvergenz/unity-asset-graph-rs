@@ -52,9 +52,9 @@ pub struct QualifiedNameRef<'a> {
 }
 
 impl<'a> QualifiedNameRef<'a> {
-    pub fn try_concat(start: Self, end: Self) -> Result<Self, Error<'a>> {
+    pub fn try_concat(start: Self, end: Self) -> Result<Self, Error> {
         if let Some(alias) = end.alias {
-            return Err(Error::BadAlias(alias));
+            return Err(Error::BadAlias(alias.to_string()));
         }
 
         Ok(Self {
@@ -63,7 +63,7 @@ impl<'a> QualifiedNameRef<'a> {
         })
     }
 
-    pub fn try_from<'t, 'b>(node: Node<'t>, buffer: &'b [u8]) -> Result<Self, Error<'b>>
+    pub fn try_from<'t, 'b>(node: Node<'t>, buffer: &'b [u8]) -> Result<Self, Error>
         where 'b: 'a {
         let mut name = Self { ..Default::default() };
         try_from(node, buffer, &mut name)?;
@@ -155,7 +155,7 @@ impl<'a> Display for QualifiedNameRef<'a> {
 }
 
 /// Extract a qualified name recursively from the source tree. Note: outputs parts in reverse order.
-fn try_from<'t, 'b, 'n>(node: Node<'t>, buffer: &'b [u8], output: &mut QualifiedNameRef<'n>) -> Result<(), Error<'b>>
+fn try_from<'t, 'b, 'n>(node: Node<'t>, buffer: &'b [u8], output: &mut QualifiedNameRef<'n>) -> Result<(), Error>
 where 'b: 'n {
     match node.kind() {
         "identifier" => {
@@ -176,7 +176,15 @@ where 'b: 'n {
                     "type_argument_list" => {
                         name.generics = c.named_child_count();
                     },
-                    _ => return Err(Error::BadGeneric(node.utf8_text(buffer).map_err(|e| Error::Utf8(e))?)),
+                    _ => {
+                        return Err(
+                            Error::BadGeneric(
+                                node.utf8_text(buffer)
+                                    .map(|s| s.to_string())
+                                    .map_err(|e| Error::Utf8(e))?
+                            )
+                        );
+                    },
                 }
             }
             output.parts.push(name);
@@ -185,7 +193,15 @@ where 'b: 'n {
         "qualified_name" => {
             let (name, qualifier) = match (node.child_by_field_name("name"), node.child_by_field_name("qualifier")) {
                 (Some(n), Some(q)) => (n, q),
-                _ => return Err(Error::BadQualified(node.utf8_text(buffer).map_err(|e| Error::Utf8(e))?)),
+                _ => {
+                    return Err(
+                        Error::BadQualified(
+                            node.utf8_text(buffer)
+                                .map(|s| s.to_string())
+                                .map_err(|e| Error::Utf8(e))?
+                        )
+                    );
+                },
             };
             try_from(qualifier, buffer, output)?;
             try_from(name, buffer, output)?;
@@ -194,11 +210,19 @@ where 'b: 'n {
         "alias_qualified_name" => {
             let (alias, name) = match (node.child_by_field_name("alias"), node.child_by_field_name("name")) {
                 (Some(a), Some(n)) => (a, n),
-                _ => return Err(Error::BadQualified(node.utf8_text(buffer).map_err(|e| Error::Utf8(e))?)),
+                _ => {
+                    return Err(
+                        Error::BadQualified(
+                            node.utf8_text(buffer)
+                                .map(|s| s.to_string())
+                                .map_err(|e| Error::Utf8(e))?
+                        )
+                    );
+                },
             };
             output.alias = Some(alias.utf8_text(buffer).map_err(|e| Error::Utf8(e))?);
             try_from(name, buffer, output)
         },
-        _ => Err(Error::BadKind(node.kind())),
+        _ => Err(Error::BadKind(node.kind().to_string())),
     }
 }

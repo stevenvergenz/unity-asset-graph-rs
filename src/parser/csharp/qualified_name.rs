@@ -18,15 +18,15 @@ const GENERIC_NAMES: [&str; 7] = [
 ];
 
 #[derive(Debug)]
-pub enum Error<'a> {
-    BadKind(&'a str),
+pub enum Error {
+    BadKind(String),
     Utf8(std::str::Utf8Error),
-    BadGeneric(&'a str),
-    BadQualified(&'a str),
-    BadAlias(&'a str),
+    BadGeneric(String),
+    BadQualified(String),
+    BadAlias(String),
 }
 
-impl<'a> Display for Error<'a> {
+impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         match self {
             Self::BadKind(k) => write!(f, "Bad kind: {k}"),
@@ -38,7 +38,7 @@ impl<'a> Display for Error<'a> {
     }
 }
 
-impl<'a> std::error::Error for Error<'a> {}
+impl std::error::Error for Error {}
 
 fn generic_args_count_from_str(text: &str) -> usize {
     let mut count = 0usize;

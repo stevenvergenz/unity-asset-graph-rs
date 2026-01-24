@@ -10,17 +10,17 @@ use super::{
 };
 
 #[derive(Debug)]
-pub enum Error<'a> {
+pub enum Error {
     Query(QueryError),
-    FieldName(&'a str),
+    FieldName(&'static str),
     FieldId(u32),
     Utf8(Utf8Error),
-    BadStaticUsing(&'a str),
-    BadName(qualified_name::Error<'a>),
-    Unknown(&'a str),
+    BadStaticUsing(String),
+    BadName(qualified_name::Error),
+    Unknown(String),
 }
 
-impl<'a> Display for Error<'a> {
+impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         match self {
             Self::Query(q) => write!(f, "{q}"),
@@ -34,7 +34,7 @@ impl<'a> Display for Error<'a> {
     }
 }
 
-impl<'a> std::error::Error for Error<'a> {}
+impl std::error::Error for Error {}
 
 static QUERY: LazyLock<Query> = LazyLock::new(|| {
     Query::new(&CS_LANG, QUERY_ALL).expect("Failed to compile query")
@@ -81,41 +81,7 @@ pub struct StructureInfo<'buffer, 'tree> {
     pub var_usages: HashMap<Node<'tree>, QualifiedNameRef<'buffer>>,
 }
 
-impl<'buffer, 'tree> StructureInfo<'buffer, 'tree> {
-    pub fn resolve_type_decl_name(&self, id_node: Node<'tree>) -> QualifiedNameRef<'buffer> {
-        todo!();
-
-        let ns_kind = CS_LANG.id_for_node_kind("namespace_declaration", true);
-        let fsns_kind = CS_LANG.id_for_node_kind("file_scoped_namespace_declaration", true);
-        // // find full namespace of the declared type
-
-        // // walk up ancestor nodes, prepending any namespace declarations we come across
-        // let mut i = scope_node;
-        // while let Some(ancestor) = i.parent() {
-        //     if ancestor.kind_id() == ns_kind
-        //     && let Some(ns) = ancestor.child_by_field_name("name") {
-        //         let ns = QualifiedNameRef::try_from(ns, buffer).map_err(|e| Error::BadName(e))?;
-        //         name = QualifiedNameRef::concat(ns, name);
-        //     }
-
-        //     i = ancestor;
-        // }
-
-        // // if there is a file-scoped namespace declaration, add it as well
-        // let root = i;
-        // let mut cursor = root.walk();
-        // if let Some(fsns) = root.named_children(&mut cursor)
-        //     .filter(|c| c.kind_id() == fsns_kind)
-        //     .next()
-        // && let Some(ns) = fsns.child_by_field_name("name")
-        // && let Ok(ns) = QualifiedNameRef::try_from(ns, buffer) {
-        //     name = QualifiedNameRef::concat(ns, name);
-        // }
-
-    }
-}
-
-pub fn evaluate_structure<'t, 'b>(tree: &'t Tree, buffer: &'b [u8]) -> Result<StructureInfo<'b, 't>, Error<'b>> {
+pub fn evaluate_structure<'t, 'b>(tree: &'t Tree, buffer: &'b [u8]) -> Result<StructureInfo<'b, 't>, Error> {
     let mut results = StructureInfo { ..Default::default() };
     let mut cursor = QueryCursor::new();
     let mut iter = cursor.matches(&QUERY, tree.root_node(), buffer);
@@ -153,7 +119,7 @@ fn get_root(node: Node) -> Node {
 
 fn evaluate_ns_decl<'t, 'b>(
     node: Node<'t>, qmatch: &QueryMatch<'_, 't>, buffer: &'b [u8], result: &mut StructureInfo<'b, 't>,
-) -> Result<(), Error<'b>> {
+) -> Result<(), Error> {
     let id_node = match qmatch.nodes_for_capture_index(*F_ID).next() {
         Some(id) => id,
         None => return Err(Error::FieldName("id")),
@@ -162,7 +128,15 @@ fn evaluate_ns_decl<'t, 'b>(
 
     let decl_node = match id_node.parent() {
         Some(p) => p,
-        None => return Err(Error::Unknown(id_node.utf8_text(buffer).map_err(|e| Error::Utf8(e))?)),
+        None => {
+            return Err(
+                Error::Unknown(
+                    id_node.utf8_text(buffer)
+                        .map(|s| s.to_string())
+                        .map_err(|e| Error::Utf8(e))?
+                )
+            );
+        },
     };
 
     if decl_node.kind_id() == *K_FILE_SCOPED_NS_DECL {
@@ -175,7 +149,7 @@ fn evaluate_ns_decl<'t, 'b>(
 
 fn evaluate_ns_usage<'t, 'b>(
     scope_node: Node<'t>, qmatch: &QueryMatch<'_, 't>, buffer: &'b [u8], result: &mut StructureInfo<'b, 't>,
-) -> Result<(), Error<'b>> {
+) -> Result<(), Error> {
     let id_node = match qmatch.nodes_for_capture_index(*F_ID).next() {
         Some(id) => id,
         None => return Err(Error::FieldName("id")),
@@ -189,7 +163,15 @@ fn evaluate_ns_usage<'t, 'b>(
 
     let decl_node = match id_node.parent() {
         Some(p) => p,
-        None => return Err(Error::BadStaticUsing(id_node.utf8_text(buffer).map_err(|e| Error::Utf8(e))?)),
+        None => {
+            return Err(
+                Error::BadStaticUsing(
+                    id_node.utf8_text(buffer)
+                        .map(|s| s.to_string())
+                        .map_err(|e| Error::Utf8(e))?
+                )
+            );
+        },
     };
     let mut cursor = decl_node.walk();
     let is_static = decl_node.children(&mut cursor).any(|c| c.kind_id() == *K_STATIC);
@@ -215,7 +197,7 @@ fn evaluate_ns_usage<'t, 'b>(
 
 fn evaluate_type_decl<'t, 'b>(
     scope_node: Node<'t>, qmatch: &QueryMatch<'_, 't>, buffer: &'b [u8], result: &mut StructureInfo<'b, 't>,
-) -> Result<(), Error<'b>> {
+) -> Result<(), Error> {
     let name_parts = (
         qmatch.nodes_for_capture_index(*F_ID).next(),
         qmatch.nodes_for_capture_index(*F_GENERICS).next(),
@@ -240,7 +222,7 @@ fn evaluate_type_decl<'t, 'b>(
 
 fn evaluate_type_usage<'t, 'b>(
     node: Node<'t>, _qmatch: &QueryMatch<'_, 't>, buffer: &'b [u8], result: &mut StructureInfo<'b, 't>,
-) -> Result<(), Error<'b>> {
+) -> Result<(), Error> {
     // skip "using x = typename", included in ns_usage
     if let Some(user) = node.parent() && user.kind_id() == *K_USING {
         return Ok(());
@@ -253,7 +235,7 @@ fn evaluate_type_usage<'t, 'b>(
 
 fn evaluate_var_decl<'t, 'b>(
     node: Node<'t>, qmatch: &QueryMatch<'_, 't>, buffer: &'b [u8], result: &mut StructureInfo<'b, 't>,
-) -> Result<(), Error<'b>> {
+) -> Result<(), Error> {
     let id_node = match qmatch.nodes_for_capture_index(*F_ID).next() {
         Some(id) => id,
         None => return Err(Error::FieldName("id")),
@@ -269,7 +251,7 @@ fn evaluate_var_decl<'t, 'b>(
 
 fn evaluate_var_usage<'t, 'b>(
     node: Node<'t>, _qmatch: &QueryMatch<'_, 't>, buffer: &'b [u8], result: &mut StructureInfo<'b, 't>,
-) -> Result<(), Error<'b>> {
+) -> Result<(), Error> {
     let name = QualifiedNameRef::try_from(node, buffer).map_err(|e| Error::BadName(e))?;
     result.var_usages.insert(node, name);
     Ok(())
