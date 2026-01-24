@@ -23,6 +23,7 @@ pub enum Error<'a> {
     Utf8(std::str::Utf8Error),
     BadGeneric(&'a str),
     BadQualified(&'a str),
+    BadAlias(&'a str),
 }
 
 impl<'a> Display for Error<'a> {
@@ -32,6 +33,7 @@ impl<'a> Display for Error<'a> {
             Self::Utf8(e) => write!(f, "Bad UTF8 text: {e}"),
             Self::BadGeneric(s) => write!(f, "Failed to parse generic type name '{s}'"),
             Self::BadQualified(s) => write!(f, "Failed to parse qualified type name '{s}'"),
+            Self::BadAlias(s) => write!(f, "Failed to handle name alias '{s}'"),
         }
     }
 }
@@ -54,4 +56,17 @@ fn generic_args_count_from_str(text: &str) -> usize {
         }
     }
     count
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn generic_args_count() {
+        assert_eq!(generic_args_count_from_str("Test"), 0);
+        assert_eq!(generic_args_count_from_str("Test<T>"), 1);
+        assert_eq!(generic_args_count_from_str("Test<T,U>"), 2);
+        assert_eq!(generic_args_count_from_str("Test<T<U,V>>"), 1);
+    }
 }

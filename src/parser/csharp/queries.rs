@@ -8,11 +8,14 @@ use const_format::{formatcp, concatcp};
 
 /// Finds all the namespace declarations. Captures the containing scope "ns_decl" and the name "id".
 const NS_DECL: &str = r#"
-    (compilation_unit
+    (compilation_unit [
         (namespace_declaration
             name: [(qualified_name) (identifier)] @id
         )
-    ) @ns_decl
+        (file_scoped_namespace_declaration
+            name: (_) @id
+        )
+    ]) @ns_decl
     (declaration_list
         (namespace_declaration
             name: [(qualified_name) (identifier)] @id
@@ -49,26 +52,27 @@ const NS_USAGE: &str = r#"
 const TYPE_DECL_ID: &str = r#"
     (class_declaration
         name: (identifier) @id
-    )
-    (class_declaration
-        (type_parameter_list
-            (type_parameter name: (identifier) @id)
-        )
+        (type_parameter_list)? @generics
     )
     (delegate_declaration
         name: (identifier) @id
+        (type_parameter_list)? @generics
     )
     (enum_declaration
         name: (identifier) @id
+        (type_parameter_list)? @generics
     )
     (interface_declaration
         name: (identifier) @id
+        (type_parameter_list)? @generics
     )
     (record_declaration
         name: (identifier) @id
+        (type_parameter_list)? @generics
     )
     (struct_declaration
         name: (identifier) @id
+        (type_parameter_list)? @generics
     )
 "#;
 
@@ -309,6 +313,10 @@ mod test {
         let mut cursor = QueryCursor::new();
         let iter = cursor.matches(&query, NS_TEST_TREE.root_node(), NS_TEST_CODE);
         assert_matches(&query, iter, vec![
+            HashMap::from([
+                ("ns_decl", NodeLike::new("compilation_unit", 0, 0)),
+                ("id", NodeLike::new("identifier", 0, 10)),
+            ]),
             // namespace L1
             HashMap::from([
                 ("ns_decl", NodeLike::new("compilation_unit", 0, 0)),
@@ -399,6 +407,7 @@ mod test {
             HashMap::from([
                 ("type_decl", NodeLike::new("declaration_list", 8, 0)),
                 ("id", NodeLike::new("identifier", 16, 18)),
+                ("generics", NodeLike::new("type_parameter_list", 16, 25))
             ]),
             // T
             HashMap::from([
@@ -408,17 +417,17 @@ mod test {
             // Class1
             HashMap::from([
                 ("type_decl", NodeLike::new("declaration_list", 8, 0)),
-                ("id", NodeLike::new("identifier", 20, 17)),
+                ("id", NodeLike::new("identifier", 21, 17)),
             ]),
             // ChildClass
             HashMap::from([
-                ("type_decl", NodeLike::new("declaration_list", 21, 4)),
-                ("id", NodeLike::new("identifier", 22, 21)),
+                ("type_decl", NodeLike::new("declaration_list", 22, 4)),
+                ("id", NodeLike::new("identifier", 23, 21)),
             ]),
             // INterface3
             HashMap::from([
-                ("type_decl", NodeLike::new("declaration_list", 35, 0)),
-                ("id", NodeLike::new("identifier", 36, 21)),
+                ("type_decl", NodeLike::new("declaration_list", 36, 0)),
+                ("id", NodeLike::new("identifier", 37, 21)),
             ]),
         ]);
     }
@@ -432,17 +441,17 @@ mod test {
             // using ns3a
             HashMap::from([("type_use", NodeLike::new("identifier", 9, 17))]),
             // T Value
-            HashMap::from([("type_use", NodeLike::new("identifier", 17, 15))]),
+            HashMap::from([("type_use", NodeLike::new("identifier", 18, 15))]),
             // ChildClassField
-            HashMap::from([("type_use", NodeLike::new("identifier", 24, 15))]),
+            HashMap::from([("type_use", NodeLike::new("identifier", 25, 15))]),
             // SiblingStructProperty
-            HashMap::from([("type_use", NodeLike::new("generic_name", 26, 15))]),
+            HashMap::from([("type_use", NodeLike::new("generic_name", 27, 15))]),
             // SiblingStructProperty generic
-            HashMap::from([("type_use", NodeLike::new("alias_qualified_name", 26, 23))]),
+            HashMap::from([("type_use", NodeLike::new("alias_qualified_name", 27, 23))]),
             // ParentEnumArray
-            HashMap::from([("type_use", NodeLike::new("identifier", 28, 15))]),
+            HashMap::from([("type_use", NodeLike::new("identifier", 29, 15))]),
             // NieceRecordField
-            HashMap::from([("type_use", NodeLike::new("qualified_name", 30, 15))]),
+            HashMap::from([("type_use", NodeLike::new("qualified_name", 31, 15))]),
         ]);
     }
 

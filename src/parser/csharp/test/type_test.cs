@@ -14,7 +14,8 @@ namespace Ns1
         public record Record2 { }
     }
 
-    public struct Struct1<T> {
+    public struct Struct1<T>
+    {
         public T Value;
     }
 

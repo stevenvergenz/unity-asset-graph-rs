@@ -142,7 +142,7 @@ pub mod test {
     }
 
     impl NodeLike {
-        pub fn new(kind: &'static str, row: usize, column: usize) -> Self {
+        pub const fn new(kind: &'static str, row: usize, column: usize) -> Self {
             Self {
                 kind,
                 start_position: Point { row, column },
