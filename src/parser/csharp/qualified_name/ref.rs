@@ -1,14 +1,31 @@
 use serde::{Deserialize, Serialize};
 use tree_sitter::{Node};
 use std::fmt::{Display, Formatter, Result as FResult};
-use crate::parser::csharp::qualified_name::generic_args_count_from_str;
 
-use super::{Error, GENERIC_NAMES};
+use super::{Error, GENERIC_NAMES, NamePart, QualifiedName, QualifiedNameOwned, QualifiedNamePart, generic_args_count_from_str};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Eq, Ord, Hash)]
 pub struct NamePartRef<'a> {
-    name: &'a str,
-    generics: usize,
+    pub name: &'a str,
+    pub generics: usize,
+}
+
+impl<'a> NamePartRef<'a> {
+    pub fn to_owned(&self) -> NamePart {
+        NamePart {
+            name: self.name.to_string(),
+            generics: self.generics,
+        }
+    }
+}
+
+impl<'a> QualifiedNamePart for NamePartRef<'a> {
+    fn name(&self) -> &str {
+        self.name
+    }
+    fn generics(&self) -> usize {
+        self.generics
+    }
 }
 
 impl<'a> Display for NamePartRef<'a> {
@@ -33,6 +50,12 @@ impl<'a> From<&'a str> for NamePartRef<'a> {
     }
 }
 
+impl<'a, T> PartialEq<T> for NamePartRef<'a> where T: QualifiedNamePart {
+    fn eq(&self, other: &T) -> bool {
+        self.name == other.name() && self.generics == other.generics()
+    }
+}
+
 impl<'a> PartialEq<str> for NamePartRef<'a> {
     fn eq(&self, other: &str) -> bool {
         if other.len() < self.name.len() {
@@ -44,11 +67,17 @@ impl<'a> PartialEq<str> for NamePartRef<'a> {
     }
 }
 
+impl<'a, T> PartialOrd<T> for NamePartRef<'a> where T: QualifiedNamePart {
+    fn partial_cmp(&self, other: &T) -> Option<std::cmp::Ordering> {
+        Some(self.name.cmp(other.name()).then(self.generics.cmp(&other.generics())))
+    }
+}
+
 /// A C# qualified name, represented as parts in order (e.g. ["MyNamespace", "MyClass"])
-#[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Debug, Clone, Eq, Ord, Hash)]
 pub struct QualifiedNameRef<'a> {
-    parts: Vec<NamePartRef<'a>>,
-    alias: Option<&'a str>,
+    pub parts: Vec<NamePartRef<'a>>,
+    pub alias: Option<&'a str>,
 }
 
 impl<'a> QualifiedNameRef<'a> {
@@ -70,10 +99,6 @@ impl<'a> QualifiedNameRef<'a> {
         Ok(name)
     }
 
-    pub fn len(&self) -> usize {
-        self.parts.len()
-    }
-
     pub fn push(&mut self, part: &'a str) {
         self.parts.push(part.into());
     }
@@ -82,13 +107,48 @@ impl<'a> QualifiedNameRef<'a> {
         self.parts.pop().map(|p| p.name)
     }
 
-    /// Splits the name into two at the given index. [0, index) is left here, [index, len) is in the returned name
-    pub fn split_off(&mut self, index: usize) -> Self {
-        Self { parts: self.parts.split_off(index), ..Default::default() }
+    pub fn to_owned(&self) -> QualifiedNameOwned {
+        QualifiedNameOwned {
+            parts: self.parts.iter().map(|p| p.to_owned()).collect(),
+            alias: self.alias.map(|s| s.to_string()),
+        }
+    }
+}
+
+impl<'a> QualifiedName for QualifiedNameRef<'a> {
+    type Part = NamePartRef<'a>;
+    type Str = &'a str;
+
+    fn parts(&self) -> impl ExactSizeIterator<Item=&Self::Part> {
+        self.parts.iter()
     }
 
-    pub fn iter(&self) -> impl ExactSizeIterator<Item=&NamePartRef<'a>> {
-        self.parts.iter()
+    fn alias(&self) -> Option<&Self::Str> {
+        self.alias.as_ref()
+    }
+
+    fn split_off(&mut self, index: usize) -> Self {
+        Self { parts: self.parts.split_off(index), ..Default::default() }
+    }
+}
+
+impl<'a, T, P, S> PartialEq<T> for QualifiedNameRef<'a>
+where T: QualifiedName<Part=P, Str=S>, P: PartialEq<NamePartRef<'a>>, S: PartialEq<&'a str> {
+    fn eq(&self, other: &T) -> bool {
+        if let Some(a) = self.alias {
+            if let Some(o) = other.alias() && *o != a {
+                return false;
+            }
+        }
+        other.parts().eq(self.parts())
+    }
+}
+
+impl<'a, T, P, S> PartialOrd<T> for QualifiedNameRef<'a>
+where T: QualifiedName<Part=P, Str=S>, P: PartialOrd<NamePartRef<'a>>, S: PartialOrd<&'a str> {
+    fn partial_cmp(&self, other: &T) -> Option<std::cmp::Ordering> {
+        other.alias().into_iter().partial_cmp(&self.alias)
+        .and(other.parts().partial_cmp(self.parts.iter()))
     }
 }
 

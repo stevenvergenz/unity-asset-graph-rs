@@ -1,12 +1,31 @@
 use serde::{Deserialize, Serialize};
 use tree_sitter::{Node};
 use std::fmt::{Display, Formatter, Result as FResult};
-use super::{Error, GENERIC_NAMES};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-struct NamePart {
-    name: String,
-    generics: usize,
+use super::{Error, GENERIC_NAMES, generic_args_count_from_str, QualifiedName, NamePartRef, QualifiedNameRef, QualifiedNamePart};
+
+#[derive(Debug, Clone, Eq, Ord, Hash, Serialize, Deserialize)]
+pub struct NamePart {
+    pub name: String,
+    pub generics: usize,
+}
+
+impl QualifiedNamePart for NamePart {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn generics(&self) -> usize {
+        self.generics
+    }
+}
+
+impl NamePart {
+    pub fn as_ref(&self) -> NamePartRef<'_> {
+        NamePartRef {
+            name: self.name.as_str(),
+            generics: self.generics,
+        }
+    }
 }
 
 impl Display for NamePart {
@@ -19,116 +38,129 @@ impl Display for NamePart {
     }
 }
 
-/// A C# qualified name, represented as parts in order (e.g. ["MyNamespace", "MyClass"])
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct QualifiedName(pub Vec<String>);
-
-impl QualifiedName {
-    pub fn new(parts: Vec<String>) -> Self {
-        if parts.is_empty() {
-            panic!("QualifiedName must have at least one part");
-        }
-        Self(parts)
-    }
-
-    pub fn concat(start: Self, end: Self) -> Self {
-        Self::from_iter(start.into_iter().chain(end.into_iter()))
-    }
-
-    pub fn try_from(node: Node<'_>, buffer: &[u8]) -> Result<Self, Error> {
-        let mut name = Self(vec![]);
-        try_from(node, buffer, &mut name)?;
-        name.0.reverse();
-        Ok(name)
-    }
-
-    pub fn starts_with(&self, other: &QualifiedName) -> bool {
-        self.0[..other.0.len()] == other.0[..]
-    }
-
-    pub fn ends_with(&self, other: &QualifiedName) -> bool {
-        self.0[self.0.len() - other.0.len()..] == other.0[..]
-    }
-
-    pub fn trim_start(&mut self, other: &QualifiedName) {
-        if self.starts_with(other) {
-            self.0 = self.0[other.0.len()..].to_vec();
+impl From<NamePartRef<'_>> for NamePart {
+    fn from(value: NamePartRef<'_>) -> Self {
+        Self {
+            name: value.name.to_string(),
+            generics: value.generics,
         }
     }
-
-    pub fn trim_end(&mut self, other: &QualifiedName) {
-        if self.ends_with(other) {
-            let new_len = self.0.len() - other.0.len();
-            self.0.truncate(new_len);
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn push(&mut self, part: String) {
-        self.0.push(part);
-    }
-
-    pub fn pop(&mut self) -> Option<String> {
-        self.0.pop()
-    }
-
-    pub fn iter(&self) -> std::slice::Iter<'_, String> {
-        self.0.iter()
-    }
 }
 
-impl<'a> FromIterator<&'a str> for QualifiedName {
-    fn from_iter<T: IntoIterator<Item = &'a str>>(iter: T) -> Self {
-        let parts: Vec<String> = iter.into_iter().map(|s| s.to_string()).collect();
-        QualifiedName::new(parts)
-    }
-}
-
-impl FromIterator<String> for QualifiedName {
-    fn from_iter<T: IntoIterator<Item = String>>(iter: T) -> Self {
-        QualifiedName::new(iter.into_iter().collect())
-    }
-}
-
-impl IntoIterator for QualifiedName {
-    type IntoIter = std::vec::IntoIter<String>;
-    type Item = String;
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-
-impl From<Vec<String>> for QualifiedName {
-    fn from(value: Vec<String>) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<&[&str]> for QualifiedName {
-    fn from(value: &[&str]) -> Self {
-        Self::from_iter(value.iter().cloned())
-    }
-}
-
-impl From<&str> for QualifiedName {
+impl From<&str> for NamePart {
     fn from(value: &str) -> Self {
-        Self::from_iter(value.split('.'))
+        if let Some(open_index) = value.find('<') {
+            let (n, g) = value.split_at(open_index);
+            println!("Generic split parts: '{n}' and '{g}'");
+            Self { name: n.to_string(), generics: generic_args_count_from_str(g) }
+        } else {
+            Self { name: value.to_string(), generics: 0 }
+        }
     }
 }
 
-// todo: split in place instead of cloning slices
-impl From<String> for QualifiedName {
+impl<T> PartialEq<T> for NamePart where T: QualifiedNamePart {
+    fn eq(&self, other: &T) -> bool {
+        &self.name == other.name() && self.generics == other.generics()
+    }
+}
+
+impl PartialEq<str> for NamePart {
+    fn eq(&self, other: &str) -> bool {
+        if other.len() < self.name.len() {
+            return false;
+        }
+
+        let (n, g) = other.split_at(self.name.len());
+        n == self.name && generic_args_count_from_str(g) == self.generics
+    }
+}
+
+impl<T> PartialOrd<T> for NamePart where T: QualifiedNamePart {
+    fn partial_cmp(&self, other: &T) -> Option<std::cmp::Ordering> {
+        Some(self.name.as_str().cmp(other.name()).then(self.generics.cmp(&other.generics())))
+    }
+}
+
+/// A C# qualified name, represented as parts in order (e.g. ["MyNamespace", "MyClass"])
+#[derive(Default, Debug, Clone, Eq, Ord, Hash, Serialize, Deserialize)]
+pub struct QualifiedNameOwned {
+    pub parts: Vec<NamePart>,
+    pub alias: Option<String>,
+}
+
+impl QualifiedNameOwned {
+    pub fn as_ref(&self) -> QualifiedNameRef<'_> {
+        QualifiedNameRef {
+            parts: self.parts.iter().map(|p| p.as_ref()).collect(),
+            alias: self.alias.as_ref().map(|s| s.as_str()),
+        }
+    }
+}
+
+impl QualifiedName for QualifiedNameOwned {
+    type Part = NamePart;
+    type Str = String;
+
+    fn alias(&self) -> Option<&Self::Str> {
+        self.alias.as_ref()
+    }
+
+    fn parts(&self) -> impl ExactSizeIterator<Item=&Self::Part> {
+        self.parts.iter()
+    }
+
+    fn split_off(&mut self, index: usize) -> Self {
+        Self { parts: self.parts.split_off(index), ..Default::default() }
+    }
+}
+
+impl<'a, T, P, S> PartialEq<T> for QualifiedNameOwned
+where T: QualifiedName<Part=P, Str=S>, P: PartialEq<NamePart>, S: PartialEq<String> {
+    fn eq(&self, other: &T) -> bool {
+        if let Some(a) = &self.alias {
+            if let Some(o) = other.alias() && o != a {
+                return false;
+            }
+        }
+        other.parts().eq(self.parts())
+    }
+}
+
+impl<T, P, S> PartialOrd<T> for QualifiedNameOwned
+where T: QualifiedName<Part=P, Str=S>, P: PartialOrd<NamePart>, S: PartialOrd<String> {
+    fn partial_cmp(&self, other: &T) -> Option<std::cmp::Ordering> {
+        other.alias().into_iter().partial_cmp(&self.alias)
+        .and(other.parts().partial_cmp(self.parts.iter()))
+    }
+}
+
+impl IntoIterator for QualifiedNameOwned {
+    type IntoIter = std::vec::IntoIter<NamePart>;
+    type Item = NamePart;
+    fn into_iter(self) -> Self::IntoIter {
+        self.parts.into_iter()
+    }
+}
+
+impl From<&str> for QualifiedNameOwned {
+    fn from(value: &str) -> Self {
+        QualifiedNameRef::from(value).to_owned()
+    }
+}
+
+impl From<String> for QualifiedNameOwned {
     fn from(value: String) -> Self {
-        Self::from(value.as_str())
+        QualifiedNameRef::from(value.as_str()).to_owned()
     }
 }
 
-impl Display for QualifiedName {
+impl Display for QualifiedNameOwned {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
-        let mut iter = self.0.iter();
+        if let Some(alias) = &self.alias {
+            write!(f, "{alias}::")?;
+        }
+        let mut iter = self.parts.iter();
         if let Some(p) = iter.next() {
             write!(f, "{}", p)?;
         }
@@ -139,64 +171,8 @@ impl Display for QualifiedName {
     }
 }
 
-impl PartialEq<str> for QualifiedName {
+impl PartialEq<str> for QualifiedNameOwned {
     fn eq(&self, other: &str) -> bool {
-        other.split('.').eq(self.0.iter().map(String::as_str))
-    }
-}
-
-/// Extract a qualified name recursively from the source tree. Note: outputs parts in reverse order.
-fn try_from(node: Node<'_>, buffer: &[u8], output: &mut QualifiedName) -> Result<(), Error> {
-    match node.kind() {
-        "identifier" => {
-            let name = node.utf8_text(buffer)
-                .map_err(|e| Error::Utf8(e))?
-                .to_string();
-            output.0.push(name);
-            Ok(())
-        },
-        "generic_name" => {
-            // children: identifier, type_argument_list
-            let mut name = String::new();
-            let mut cursor = node.walk();
-            for c in node.named_children(&mut cursor) {
-                match c.kind() {
-                    "identifier" => {
-                        let id = c.utf8_text(buffer).map_err(|e| Error::Utf8(e))?;
-                        name.insert_str(0, id);
-                    },
-                    "type_argument_list" => {
-                        name.push_str(GENERIC_NAMES[c.named_child_count() - 1]);
-                    },
-                    _ => {
-                        return Err(
-                            Error::BadGeneric(
-                                node.utf8_text(buffer)
-                                    .map(|s| s.to_string())
-                                    .map_err(|e| Error::Utf8(e))?
-                            )
-                        );
-                    },
-                }
-            }
-            output.push(name);
-            Ok(())
-        },
-        "qualified_name" => {
-            let (name, qualifier) = match (node.child_by_field_name("name"), node.child_by_field_name("qualifier")) {
-                (Some(n), Some(q)) => (n, q),
-                _ => {
-                    return Err(Error::BadQualified(
-                        node.utf8_text(buffer)
-                            .map(|s| s.to_string())
-                            .map_err(|e| Error::Utf8(e))?
-                    ));
-                },
-            };
-            try_from(name, buffer, output)?;
-            try_from(qualifier, buffer, output)?;
-            Ok(())
-        },
-        _ => Err(Error::BadKind(node.kind().to_string())),
+        self.as_ref() == QualifiedNameRef::from(other)
     }
 }

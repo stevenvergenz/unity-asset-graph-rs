@@ -1,4 +1,7 @@
 use const_format::{formatcp, concatcp};
+use tree_sitter::Query;
+use std::sync::LazyLock;
+use super::CS_LANG;
 
 /// Finds all the namespace declarations. Captures the containing scope "ns_decl" and the name "id".
 const NS_DECL: &str = r#"
@@ -228,6 +231,30 @@ pub const QUERY_ALL: &str = concatcp!(
     VAR_DECL,
     VAR_USAGE,
 );
+
+pub static QUERY: LazyLock<Query> = LazyLock::new(|| {
+    Query::new(&CS_LANG, QUERY_ALL).expect("Failed to compile query")
+});
+
+pub mod fields {
+    use super::*;
+    pub static NS_DECL: LazyLock<u32> = LazyLock::new(|| QUERY.capture_index_for_name("ns_decl").expect("Failed to get field ns_decl"));
+    pub static NS_USE: LazyLock<u32> = LazyLock::new(|| QUERY.capture_index_for_name("ns_use").expect("Failed to get field ns_use"));
+    pub static TYPE_DECL: LazyLock<u32> = LazyLock::new(|| QUERY.capture_index_for_name("type_decl").expect("Failed to get field type_decl"));
+    pub static TYPE_USE: LazyLock<u32> = LazyLock::new(|| QUERY.capture_index_for_name("type_use").expect("Failed to get field type_use"));
+    pub static VAR_DECL: LazyLock<u32> = LazyLock::new(|| QUERY.capture_index_for_name("var_decl").expect("Failed to get field var_decl"));
+    pub static VAR_USE: LazyLock<u32> = LazyLock::new(|| QUERY.capture_index_for_name("var_use").expect("Failed to get field var_use"));
+    pub static ID: LazyLock<u32> = LazyLock::new(|| QUERY.capture_index_for_name("id").expect("Failed to get field id"));
+    pub static ALIAS: LazyLock<u32> = LazyLock::new(|| QUERY.capture_index_for_name("alias").expect("Failed to get field alias"));
+    pub static GENERICS: LazyLock<u32> = LazyLock::new(|| QUERY.capture_index_for_name("generics").expect("Failed to get field generics"));
+}
+
+pub mod kinds {
+    use super::*;
+    pub static FILE_SCOPED_NS_DECL: LazyLock<u16> = LazyLock::new(|| CS_LANG.id_for_node_kind("file_scoped_namespace_declaration", true));
+    pub static USING: LazyLock<u16> = LazyLock::new(|| CS_LANG.id_for_node_kind("using_directive", true));
+    pub static STATIC: LazyLock<u16> = LazyLock::new(|| CS_LANG.id_for_node_kind("static", false));
+}
 
 #[cfg(test)]
 mod test {

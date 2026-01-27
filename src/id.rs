@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use crate::parser::QualifiedName;
+use crate::parser::QualifiedNameOwned;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Serialize, Deserialize, Default)]
 pub enum Id {
@@ -10,7 +10,7 @@ pub enum Id {
     Guid(Uuid),
     Loc(String),
     /// A C# type identified by its full name parts in reverse order (e.g. ["MyClass", "MyNamespace"])
-    CsType(QualifiedName),
+    CsType(QualifiedNameOwned),
 }
 
 impl Display for Id {

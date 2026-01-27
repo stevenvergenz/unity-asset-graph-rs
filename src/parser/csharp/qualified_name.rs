@@ -5,6 +5,7 @@ pub use r#ref::*;
 
 use std::{
     fmt::{Display, Formatter, Result as FResult},
+    borrow::Borrow,
 };
 
 const GENERIC_NAMES: [&str; 7] = [
@@ -39,6 +40,46 @@ impl Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+pub trait QualifiedNamePart: PartialEq + Eq + PartialOrd + Ord + std::hash::Hash {
+    fn name(&self) -> &str;
+    fn generics(&self) -> usize;
+}
+
+pub trait QualifiedName: PartialEq + Eq + PartialOrd + Ord + std::hash::Hash + Sized {
+    type Part: QualifiedNamePart;
+    type Str: Borrow<str>;
+
+    fn parts(&self) -> impl ExactSizeIterator<Item=&Self::Part>;
+    fn alias(&self) -> Option<&Self::Str>;
+
+    /// Splits the name into two at the given index. [0, index) is left here, [index, len) is in the returned name
+    fn split_off(&mut self, index: usize) -> Self;
+
+    fn len(&self) -> usize {
+        self.parts().len()
+    }
+
+    fn ends_with<P, S>(&self, other: &impl QualifiedName<Part=P, Str=S>) -> bool
+    where Self::Part: PartialEq<P>, Self::Str: PartialEq<S> {
+        if let Some(oa) = other.alias() {
+            if let Some(sa) = self.alias() {
+                sa == oa && self.parts().eq(other.parts())
+            } else {
+                false
+            }
+        } else {
+            self.parts().skip(self.len() - other.len()).eq(other.parts())
+        }
+    }
+
+    fn trim_end<P, S>(&mut self, other: &impl QualifiedName<Part=P, Str=S>)
+    where Self::Part: PartialEq<P>, Self::Str: PartialEq<S> {
+        if self.ends_with(other) {
+            self.split_off(self.len() - other.len());
+        }
+    }
+}
 
 fn generic_args_count_from_str(text: &str) -> usize {
     let mut count = 0usize;

@@ -97,7 +97,7 @@ pub mod test {
         fmt::{Display, Formatter, Result as FResult},
     };
     use pretty_assertions::assert_eq;
-    use crate::{AssetType, Id, Relation, QualifiedName};
+    use crate::{AssetType, Id, Relation, QualifiedNameOwned};
 
     
     pub fn _debug_up(node: Node, buffer: &[u8]) {
@@ -217,7 +217,7 @@ pub mod test {
         ]));
 
         let class_t = Asset {
-            id: Id::CsType(QualifiedName::from("My.Namespace.MyClass")),
+            id: Id::CsType(QualifiedNameOwned::from("My.Namespace.MyClass")),
             asset_type: AssetType::CsType,
             relations: HashSet::from([
                 Relation::ContainedBy(file_asset.id.clone()),
@@ -230,7 +230,7 @@ pub mod test {
         );
 
         let delegate_t = Asset {
-            id: Id::CsType(QualifiedName::from("My.Namespace.MyClass.MyDelegate")),
+            id: Id::CsType(QualifiedNameOwned::from("My.Namespace.MyClass.MyDelegate")),
             asset_type: AssetType::CsType,
             relations: HashSet::from([
                 Relation::ContainedBy(file_asset.id.clone()),
@@ -245,7 +245,7 @@ pub mod test {
         );
 
         let underclass_t = Asset {
-            id: Id::CsType(QualifiedName::from("My.Namespace.MyClass.UnderClass")),
+            id: Id::CsType(QualifiedNameOwned::from("My.Namespace.MyClass.UnderClass")),
             asset_type: AssetType::CsType,
             relations: HashSet::from([
                 Relation::ContainedBy(file_asset.id.clone()),
@@ -260,7 +260,7 @@ pub mod test {
         );
 
         let struct_t = Asset {
-            id: Id::CsType(QualifiedName::from("My.Namespace.MyStruct")),
+            id: Id::CsType(QualifiedNameOwned::from("My.Namespace.MyStruct")),
             asset_type: AssetType::CsType,
             relations: HashSet::from([
                 Relation::ContainedBy(file_asset.id.clone()),
@@ -274,7 +274,7 @@ pub mod test {
         );
 
         let enum_t = Asset {
-            id: Id::CsType(QualifiedName::from("My.Namespace.MyEnum")),
+            id: Id::CsType(QualifiedNameOwned::from("My.Namespace.MyEnum")),
             asset_type: AssetType::CsType,
             relations: HashSet::from([
                 Relation::ContainedBy(file_asset.id.clone()),
@@ -288,7 +288,7 @@ pub mod test {
         );
 
         let interface_t = Asset {
-            id: Id::CsType(QualifiedName::from("My.Namespace.IMyInterface")),
+            id: Id::CsType(QualifiedNameOwned::from("My.Namespace.IMyInterface")),
             asset_type: AssetType::CsType,
             relations: HashSet::from([
                 Relation::ContainedBy(file_asset.id.clone()),
@@ -302,7 +302,7 @@ pub mod test {
         );
 
         let inner_t = Asset {
-            id: Id::CsType(QualifiedName::from("My.Namespace.InnerNamespace.InnerClass")),
+            id: Id::CsType(QualifiedNameOwned::from("My.Namespace.InnerNamespace.InnerClass")),
             asset_type: AssetType::CsType,
             relations: HashSet::from([
                 Relation::ContainedBy(file_asset.id.clone()),
@@ -334,27 +334,27 @@ pub mod test {
         println!("Type requests: {:#?}", broker.requests().iter().collect::<Vec<&type_broker::TypeRequest>>());
         
         let scoped_ns = vec![
-            QualifiedName::from("My.DifferentNamespace"),
-            QualifiedName::from("My"),
-            QualifiedName::from("My.Namespace"),
+            QualifiedNameOwned::from("My.DifferentNamespace"),
+            QualifiedNameOwned::from("My"),
+            QualifiedNameOwned::from("My.Namespace"),
         ];
 
         assert!(broker.requests().contains(&type_broker::TypeRequest::new(
-            &Id::CsType(QualifiedName::from("My.Namespace.MyClass")),
-            QualifiedName::from("My.OtherNamespace.LocalizedString"),
-            &scoped_ns,
+            &Id::CsType(QualifiedNameOwned::from("My.Namespace.MyClass")),
+            QualifiedNameOwned::from("My.OtherNamespace.LocalizedString"),
+            scoped_ns.clone(),
         )));
 
         assert!(broker.requests().contains(&type_broker::TypeRequest::new(
-            &Id::CsType(QualifiedName::from("My.Namespace.MyClass")),
-            QualifiedName::from("LocalizedString"),
-            &scoped_ns,
+            &Id::CsType(QualifiedNameOwned::from("My.Namespace.MyClass")),
+            QualifiedNameOwned::from("LocalizedString"),
+            scoped_ns.clone(),
         )));
 
         assert!(broker.requests().contains(&type_broker::TypeRequest::new(
-            &Id::CsType(QualifiedName::from("My.Namespace.MyClass")),
-            QualifiedName::from("LocStringCache"),
-            &scoped_ns,
+            &Id::CsType(QualifiedNameOwned::from("My.Namespace.MyClass")),
+            QualifiedNameOwned::from("LocStringCache"),
+            scoped_ns,
         )));
         
         assert_eq!(broker.requests().len(), 3);

@@ -7,7 +7,7 @@ use std::{
     path::PathBuf,
 };
 use uuid::Uuid;
-use asset_graph_rs::{Asset, AssetType, Database, DatabaseFile, Id, Relation, QualifiedName};
+use asset_graph_rs::{Asset, AssetType, Database, DatabaseFile, Id, Relation, QualifiedName, QualifiedNameOwned};
 
 #[derive(Parser)]
 struct CliArgs {
@@ -176,7 +176,7 @@ fn info(db_path: &str, guid: Option<Uuid>, loc: Option<String>, cs: Option<Strin
         } else if let Some(loc) = loc {
             Id::Loc(loc)
         } else if let Some(cs) = cs {
-            Id::CsType(QualifiedName::from(cs))
+            Id::CsType(QualifiedNameOwned::from(cs))
         } else {
             panic!("One of --guid, --loc, or --cs must be provided");
         };
@@ -336,7 +336,7 @@ fn find_outside_refs(db_path: &str, container_id: Vec<Uuid>, container_path: Vec
             .and_then(|a| a.path.as_ref());
 
         let name = if let Id::CsType(name) = &outside.id {
-            name.iter().last().unwrap()
+            name.as_ref().split_off(name.len() - 1)
         } else {
             panic!("Expected CsType asset");
         };
@@ -366,7 +366,7 @@ fn find_outside_refs(db_path: &str, container_id: Vec<Uuid>, container_path: Vec
                 .and_then(|a| a.path.as_ref());
 
             let name = if let Id::CsType(name) = &user.id {
-                name.iter().last().unwrap()
+                name.as_ref().split_off(name.len() - 1)
             } else {
                 panic!("Expected CsType asset");
             };
