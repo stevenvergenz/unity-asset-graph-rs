@@ -254,6 +254,7 @@ pub mod kinds {
     pub static FILE_SCOPED_NS_DECL: LazyLock<u16> = LazyLock::new(|| CS_LANG.id_for_node_kind("file_scoped_namespace_declaration", true));
     pub static USING: LazyLock<u16> = LazyLock::new(|| CS_LANG.id_for_node_kind("using_directive", true));
     pub static STATIC: LazyLock<u16> = LazyLock::new(|| CS_LANG.id_for_node_kind("static", false));
+    pub static MEMBER_ACCESS_EXPR: LazyLock<u16> = LazyLock::new(|| CS_LANG.id_for_node_kind("member_access_expression", true));
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@ use tree_sitter::{Node};
 use std::fmt::{Display, Formatter, Result as FResult};
 
 use super::{Error, GENERIC_NAMES, NamePart, QualifiedName, QualifiedNameOwned, QualifiedNamePart, generic_args_count_from_str};
+use super::super::queries::kinds as k;
 
 #[derive(Debug, Clone, Eq, Ord, Hash)]
 pub struct NamePartRef<'a> {
@@ -222,6 +223,15 @@ where 'b: 'n {
             let name = node.utf8_text(buffer)
                 .map_err(|e| Error::Utf8(e))?;
             output.parts.push(NamePartRef { name, generics: 0 });
+
+            let mut parent = node;
+            while let Some(p) = parent.parent() && p.kind_id() == *k::MEMBER_ACCESS_EXPR {
+                if let Some(part_node) = p.child_by_field_name("name") && part_node != node {
+                    println!("adding mae: {part_node}");
+                    try_from(part_node, buffer, output)?;
+                }
+                parent = p;
+            }
             Ok(())
         },
         "generic_name" => {
