@@ -7,10 +7,7 @@ use crate::{
 
 impl Database {
     pub fn populate_pass3_link(&mut self, mut broker: TypeBroker) -> Result<(), DatabaseError> {
-        let ids: Vec<Id> = self.assets.keys().cloned().collect();
-        for id in &ids {
-            broker.fulfill(id, self);
-        }
+        broker.fulfill(self.assets.keys().map(|id| id.clone()).collect::<Vec<_>>(), self);
         Ok(())
     }
 }

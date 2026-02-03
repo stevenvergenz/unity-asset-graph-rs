@@ -56,6 +56,8 @@ pub trait QualifiedName: PartialEq + Eq + PartialOrd + Ord + std::hash::Hash + S
     /// Splits the name into two at the given index. [0, index) is left here, [index, len) is in the returned name
     fn split_off(&mut self, index: usize) -> Self;
 
+    fn resolve_alias(&mut self, namespace: Self);
+
     fn len(&self) -> usize {
         self.parts().len()
     }

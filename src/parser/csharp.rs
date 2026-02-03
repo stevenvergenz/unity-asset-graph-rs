@@ -339,25 +339,23 @@ pub mod test {
             QualifiedNameOwned::from("My.Namespace"),
         ];
 
-        assert!(broker.requests().contains(&type_broker::TypeRequest::new(
-            &Id::CsType(QualifiedNameOwned::from("My.Namespace.MyClass")),
-            QualifiedNameOwned::from("My.OtherNamespace.LocalizedString"),
-            scoped_ns.clone(),
-        )));
-
-        assert!(broker.requests().contains(&type_broker::TypeRequest::new(
-            &Id::CsType(QualifiedNameOwned::from("My.Namespace.MyClass")),
-            QualifiedNameOwned::from("LocalizedString"),
-            scoped_ns.clone(),
-        )));
-
-        assert!(broker.requests().contains(&type_broker::TypeRequest::new(
-            &Id::CsType(QualifiedNameOwned::from("My.Namespace.MyClass")),
-            QualifiedNameOwned::from("LocStringCache"),
-            scoped_ns,
-        )));
-        
-        assert_eq!(broker.requests().len(), 3);
+        assert_eq!(broker.requests(), &HashSet::from([
+            type_broker::TypeRequest {
+                requester: Id::CsType(QualifiedNameOwned::from("My.Namespace.MyClass")),
+                partial_name: QualifiedNameOwned::from("My.OtherNamespace.LocalizedString"),
+                scoped_namespaces: scoped_ns.clone(),
+            },
+            type_broker::TypeRequest {
+                requester: Id::CsType(QualifiedNameOwned::from("My.Namespace.MyClass")),
+                partial_name: QualifiedNameOwned::from("LocalizedString"),
+                scoped_namespaces: scoped_ns.clone(),
+            },
+            type_broker::TypeRequest {
+                requester: Id::CsType(QualifiedNameOwned::from("My.Namespace.MyClass")),
+                partial_name: QualifiedNameOwned::from("LocStringCache"),
+                scoped_namespaces: scoped_ns.clone(),
+            },
+        ]));
 
         Ok(())
     }
