@@ -113,6 +113,15 @@ impl QualifiedName for QualifiedNameOwned {
     fn split_off(&mut self, index: usize) -> Self {
         Self { parts: self.parts.split_off(index), ..Default::default() }
     }
+
+    fn resolve_alias(&mut self, namespace: Self) {
+        if self.alias.is_some() {
+            self.alias = namespace.alias;
+            for p in namespace.parts.into_iter().rev() {
+                self.parts.insert(0, p);
+            }
+        }
+    }
 }
 
 impl<'a, T, P, S> PartialEq<T> for QualifiedNameOwned

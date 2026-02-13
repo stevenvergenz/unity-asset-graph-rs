@@ -6,22 +6,14 @@ use super::qualified_name::{QualifiedName, QualifiedNameOwned, QualifiedNamePart
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct TypeRequest {
     /// The asset that uses the type
-    requester: Id,
+    pub requester: Id,
     /// The un- or partially-qualified name of the type being requested from the broker
-    partial_name: QualifiedNameOwned,
+    pub partial_name: QualifiedNameOwned,
     /// The namespaces in scope during the reference
-    scoped_namespaces: Vec<QualifiedNameOwned>,
+    pub scoped_namespaces: Vec<QualifiedNameOwned>,
 }
 
 impl TypeRequest {
-    pub fn new(requester: &Id, name: QualifiedNameOwned, scoped_namespaces: impl IntoIterator<Item=QualifiedNameOwned>) -> Self {
-        Self {
-            requester: requester.clone(),
-            partial_name: name.into(),
-            scoped_namespaces: Vec::from_iter(scoped_namespaces),
-        }
-    }
-
     /// Determines if the given type ID satisfies this type request.
     pub fn satisfied_by(&self, type_id: &Id) -> bool {
         if let Id::CsType(fqn) = type_id {
@@ -56,18 +48,22 @@ impl TypeBroker {
     }
 
     pub fn request(&mut self, requester: &Id, type_name: QualifiedNameOwned, scoped_namespaces: impl IntoIterator<Item=QualifiedNameOwned>) {
-        self.requests.insert(TypeRequest::new(requester, type_name, scoped_namespaces));
+        self.requests.insert(TypeRequest {
+            requester: requester.clone(),
+            partial_name: type_name,
+            scoped_namespaces: scoped_namespaces.into_iter().collect(),
+        });
     }
 
-    pub fn fulfill(&mut self, id: &Id, database: &mut Database) {
-        for req in self.requests.extract_if(|req| req.satisfied_by(id)) {
-            if let Some(asset) = database.asset_mut(&req.requester) {
-                asset.relations.insert(Relation::Uses(id.clone()));
-            }
-        }
+    pub fn push(&mut self, request: TypeRequest) {
+        self.requests.insert(request);
     }
 
     pub fn requests(&self) -> &HashSet<TypeRequest> {
         &self.requests
+    }
+
+    pub fn fulfill(&mut self, ids: impl IntoIterator<Item=Id>, database: &mut Database) {
+        
     }
 }
