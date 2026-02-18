@@ -41,12 +41,12 @@ impl Display for Error {
 
 impl std::error::Error for Error {}
 
-pub trait QualifiedNamePart: PartialEq + Eq + PartialOrd + Ord + std::hash::Hash {
+pub trait QualifiedNamePart: PartialEq + Eq + PartialOrd + Ord + std::hash::Hash + Display {
     fn name(&self) -> &str;
     fn generics(&self) -> usize;
 }
 
-pub trait QualifiedName: PartialEq + Eq + PartialOrd + Ord + std::hash::Hash + Sized {
+pub trait QualifiedName: PartialEq + Eq + PartialOrd + Ord + std::hash::Hash + Sized + Display {
     type Part: QualifiedNamePart;
     type Str: Borrow<str>;
 
@@ -70,8 +70,10 @@ pub trait QualifiedName: PartialEq + Eq + PartialOrd + Ord + std::hash::Hash + S
             } else {
                 false
             }
-        } else {
+        } else if self.parts().len() >= other.parts().len() {
             self.parts().skip(self.len() - other.len()).eq(other.parts())
+        } else {
+            false
         }
     }
 

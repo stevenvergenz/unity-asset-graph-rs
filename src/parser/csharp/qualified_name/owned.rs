@@ -51,7 +51,6 @@ impl From<&str> for NamePart {
     fn from(value: &str) -> Self {
         if let Some(open_index) = value.find('<') {
             let (n, g) = value.split_at(open_index);
-            println!("Generic split parts: '{n}' and '{g}'");
             Self { name: n.to_string(), generics: generic_args_count_from_str(g) }
         } else {
             Self { name: value.to_string(), generics: 0 }

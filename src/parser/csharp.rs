@@ -64,7 +64,6 @@ fn parse_buffer(
     path: &PathBuf,
     broker: &Arc<Mutex<TypeBroker>>
 ) -> Result<Vec<Asset>, ParseError> {
-    println!("parse_buffer");
     let mut def_assets = vec![];
     
     // load syntax tree
