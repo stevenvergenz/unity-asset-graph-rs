@@ -101,6 +101,34 @@ impl QualifiedNameOwned {
             alias: self.alias.as_ref().map(|s| s.as_str()),
         }
     }
+
+    pub fn try_concat(start: impl Into<Self>, end: impl Into<Self>) -> Result<Self, Error> {
+        let start = start.into();
+        let end = end.into();
+        if let Some(alias) = end.alias {
+            return Err(Error::BadAlias(alias.to_string()));
+        }
+
+        Ok(Self {
+            alias: start.alias,
+            parts: start.parts.into_iter().chain(end.parts.into_iter()).collect(),
+        })
+    }
+
+    pub fn concat(start: impl Into<Self>, end: impl Into<Self>) -> Self {
+        let start = start.into();
+        let end = end.into();
+        if let Some(alias) = end.alias {
+            panic!("Trailing name in a concat operation cannot have a namespace alias");
+        }
+
+        Self {
+            alias: start.alias,
+            parts: start.parts.into_iter().chain(end.parts.into_iter()).collect(),
+        }
+    }
+
+
 }
 
 impl QualifiedName for QualifiedNameOwned {

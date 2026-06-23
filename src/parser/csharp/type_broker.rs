@@ -1,9 +1,12 @@
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    cell::RefCell,
+};
 use crate::{Database, Id, Relation};
-use super::qualified_name::{QualifiedName, QualifiedNameOwned, QualifiedNamePart};
+use super::qualified_name::{QualifiedName, QualifiedNameOwned, QualifiedNamePart, QualifiedNameRef};
 
 /// A reference to a type within the file being parsed. May be locally declared, fully qualified, or ambiguous and need brokering.
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Default, Debug, PartialEq, Eq, Hash)]
 pub struct TypeRequest {
     /// The asset that uses the type
     pub requester: Id,
@@ -17,12 +20,14 @@ impl TypeRequest {
     /// Determines if the given type ID satisfies this type request.
     pub fn satisfied_by(&self, type_id: &Id) -> bool {
         if let Id::CsType(fqn) = type_id {
-            if fqn.ends_with(&self.partial_name) {
-                let fqn = fqn.as_ref().split_off(fqn.len() - self.partial_name.len());
-                self.scoped_namespaces.iter().any(|ns| ns == &fqn)
-            } else {
-                false
+            let fqn = QualifiedNameRef::from(fqn);
+            for i in 0..fqn.len() {
+                let (ns, name) = fqn.split(i);
+                if (ns.len() == 0 || self.scoped_namespaces.iter().any(|sns| *sns == ns)) && self.partial_name == name {
+                    return true;
+                }
             }
+            false
         } else {
             false
         }
@@ -63,7 +68,17 @@ impl TypeBroker {
         &self.requests
     }
 
-    pub fn fulfill(&mut self, ids: impl IntoIterator<Item=Id>, database: &mut Database) {
-        
+    pub fn fulfill(&mut self, ids: impl ExactSizeIterator + IntoIterator<Item=Id>, database: &mut Database) {
+        println!("Checking {} ids against {} type requests", ids.len(), self.requests.len());
+        for id in ids {
+            self.requests.extract_if(|req| {
+                if req.satisfied_by(&id) && let Some(asset) = database.asset_mut(&req.requester) {
+                    asset.relations.insert(Relation::Uses(id.clone()));
+                    true
+                } else {
+                    false
+                }
+            });
+        }
     }
 }

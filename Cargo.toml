@@ -2,6 +2,7 @@
 name = "asset-graph-rs"
 version = "0.1.0"
 edition = "2024"
+default-run = "asset-graph-rs"
 
 [features]
 default = ["locstring"]

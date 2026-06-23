@@ -62,6 +62,13 @@ pub trait QualifiedName: Clone + PartialEq + Eq + PartialOrd + Ord + std::hash::
         self.parts().len()
     }
 
+    /// Split the name into two at the given index.
+    fn split(&self, index: usize) -> (Self, Self) {
+        let mut p1 = self.clone();
+        let p2 = p1.split_off(index);
+        (p1, p2)
+    }
+
     fn ends_with<P, S>(&self, other: &impl QualifiedName<Part=P, Str=S>) -> bool
     where Self::Part: PartialEq<P>, Self::Str: PartialEq<S> {
         if let Some(oa) = other.alias() {
