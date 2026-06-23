@@ -44,7 +44,7 @@ impl Database {
 
             let mut first = true;
             while let Ok(e) = err_rx.try_recv() {
-                if let Some(&ParseError { ref path, .. }) = e.inner.as_ref() && !self.roots.contains(path) {
+                if let DatabaseError::Parse(ParseError { ref path, .. }) = e && !self.roots.contains(path) {
                     if first {
                         eprintln!();
                         first = false;
@@ -94,10 +94,7 @@ impl Database {
             };
 
             if !path.exists() {
-                let err = DatabaseError {
-                    message: format!("Asset path '{}' does not exist", path.display()),
-                    inner: None,
-                };
+                let err = DatabaseError::BadPath(path.clone());
                 if let Err(e) = err_tx.send(err) {
                     eprintln!("Error sending error: {}", e);
                     continue;
@@ -153,7 +150,7 @@ impl Database {
     fn find_assets_dir(path: &PathBuf) -> Result<Vec<PathBuf>, DatabaseError>{
         let files = match path.read_dir() {
             Ok(files) => files,
-            Err(e) => return Err(DatabaseError { message: format!("Failed to read directory '{}': {}", path.display(), e), inner: None }),
+            Err(_) => return Err(DatabaseError::BadPath(path.clone())),
         };
 
         let mut paths = vec![];

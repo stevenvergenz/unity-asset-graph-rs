@@ -4,3 +4,4 @@ UserSettings/
 *.csproj
 *.sln
 Library/
+Temp/

@@ -2,8 +2,10 @@ use std::{
     collections::{HashSet, HashMap },
     path::PathBuf,
     fs,
+    cell::RefCell,
 };
 use serde::{Deserialize, Serialize};
+use regex::RegexBuilder;
 use crate::{
     QualifiedName, QualifiedNameOwned, asset::Asset, asset_type::AssetType, id::Id, parser::ParseError
 };
@@ -14,17 +16,24 @@ mod populate_pass2;
 mod populate_pass3;
 
 #[derive(Debug)]
-pub struct DatabaseError {
-    message: String,
-    inner: Option<ParseError>,
+pub enum DatabaseError {
+    Parse(ParseError),
+    Regex(regex::Error),
+    BadPath(PathBuf),
+}
+
+impl DatabaseError {
+    pub fn parse(path: impl Into<PathBuf>, message: impl Into<String>) -> Self {
+        Self::Parse(ParseError::new(path, message))
+    }
 }
 
 impl std::fmt::Display for DatabaseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(inner) = &self.inner {
-            write!(f, "{}: {}", self.message, inner)
-        } else {
-            write!(f, "{}", self.message)
+        match self {
+            Self::Parse(p) => write!(f, "Parse error: {p}"),
+            Self::Regex(r) => write!(f, "Regex error: {r}"),
+            Self::BadPath(p) => write!(f, "Bad path: {}", p.display()),
         }
     }
 }
@@ -37,6 +46,8 @@ pub struct Database {
     roots: HashSet<PathBuf>,
     loc_roots: HashSet<PathBuf>,
     assets: HashMap<Id, Asset>,
+    #[serde(skip)]
+    id_strs: RefCell<HashMap<Id, String>>,
 }
 
 impl Database {
@@ -56,6 +67,7 @@ impl Database {
             roots: HashSet::new(),
             loc_roots: HashSet::new(),
             assets: HashMap::new(),
+            id_strs: RefCell::new(HashMap::new()),
         };
 
         db.add_root_str(root).map(|_| db)
@@ -121,21 +133,44 @@ impl Database {
         self.assets.values()
     }
 
-    pub fn assets_by_name(&self, name: &str) -> impl Iterator<Item = &Asset> {
-        let qn = QualifiedNameOwned::from(name);
-        self.assets.values().filter(move |a| {
-            if let Some(p) = a.path.as_ref()
-                && let Some(file_name) = p.file_name()
-                && let Some(name_str) = file_name.to_str()
-                && name_str == name {
-                true
+    pub fn find_assets_by_name(&self, regex: &str) -> Result<impl ExactSizeIterator<Item = &Asset>, DatabaseError> {
+        let re = RegexBuilder::new(regex)
+            .unicode(false)
+            .build()
+            .map_err(|e| DatabaseError::Regex(e))?;
+
+        let mut out = vec![];
+        for a in self.assets.values() {
+            if let Some(haystack) = a.path.as_ref().and_then(|p| Some(p.to_string_lossy()))
+                && re.is_match(&haystack) {
+                out.push(a);
             }
-            else if let Id::CsType(a_name) = &a.id && a_name.ends_with(&qn) {
-                true
+        }
+        Ok(out.into_iter())
+    }
+
+    pub fn find_assets_by_id(&self, regex: &str) -> Result<impl ExactSizeIterator<Item = &Asset>, DatabaseError> {
+        let re = RegexBuilder::new(regex)
+            .unicode(false)
+            .build()
+            .map_err(|e| DatabaseError::Regex(e))?;
+
+        let mut strmap = self.id_strs.take();
+        let mut out = vec![];
+        for (id, asset) in self.assets.iter() {
+            let idstr = if let Some(s) = strmap.get(id) {
+                s
+            } else {
+                strmap.insert(id.clone(), id.to_string());
+                strmap.get(id).unwrap()
+            };
+
+            if re.is_match(idstr) {
+                out.push(asset);
             }
-            else {
-                false
-            }
-        })
+        }
+
+        self.id_strs.replace(strmap);
+        Ok(out.into_iter())
     }
 }

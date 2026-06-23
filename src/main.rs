@@ -7,7 +7,7 @@ use std::{
     path::PathBuf,
 };
 use uuid::Uuid;
-use asset_graph_rs::{Asset, AssetType, Database, DatabaseFile, Id, Relation, QualifiedName, QualifiedNameOwned};
+use asset_graph_rs::{Asset, AssetType, Database, DatabaseFile, Id, Relation, QualifiedName};
 
 #[derive(Parser)]
 struct CliArgs {
@@ -28,15 +28,9 @@ enum CliCommand {
     },
     #[command(about = "Get information about a specific asset by ID or name")]
     Info {
-        #[arg(long, help = "GUID of the asset")]
-        guid: Option<Uuid>,
-        #[arg(long, help = "Loc ID of the asset")]
-        loc: Option<String>,
-        #[arg(long, help = "C# declaration name of the asset")]
-        cs: Option<String>,
-        #[arg(long, help = "Name of the asset")]
-        name: Option<String>,
-        #[arg(long, help = "Path of the asset")]
+        #[arg(long, help = "Partial ID of the asset")]
+        id: Option<String>,
+        #[arg(long, help = "Partial path of the asset")]
         path: Option<String>,
         #[arg(long, help = "Show the list of detected package roots")]
         roots: bool,
@@ -133,8 +127,8 @@ fn main() {
         CliCommand::FindAssets { root_path, relative_to } => {
             find_assets(args.db_path, root_path, relative_to);
         },
-        CliCommand::Info { guid, loc, cs, name, path, roots } => {
-            info(&args.db_path, guid, loc, cs, name, path, roots);
+        CliCommand::Info { id, path, roots } => {
+            info(&args.db_path, id, path, roots);
         },
         CliCommand::FindUnused { id_type, id_only, summarize} => {
             find_unused(&args.db_path, id_type, id_only, summarize);
@@ -158,7 +152,7 @@ fn find_assets(db_path: String, root_path: String, relative_to: Option<String>) 
     DatabaseFile::from(db).save(db_path).expect("Error saving database file");
 }
 
-fn info(db_path: &str, guid: Option<Uuid>, loc: Option<String>, cs: Option<String>, name: Option<String>, path: Option<String>, roots: bool) {
+fn info(db_path: &str, id: Option<String>, path: Option<String>, roots: bool) {
     let db = DatabaseFile::load(db_path)
         .expect(format!("Failed to load database file from {}", db_path).as_str())
         .database;
@@ -170,43 +164,24 @@ fn info(db_path: &str, guid: Option<Uuid>, loc: Option<String>, cs: Option<Strin
             println!("- {r}");
         }
     }
-    else if guid.is_some() || loc.is_some() || cs.is_some() {
-        let id = if let Some(guid) = guid {
-            Id::Guid(guid)
-        } else if let Some(loc) = loc {
-            Id::Loc(loc)
-        } else if let Some(cs) = cs {
-            Id::CsType(QualifiedNameOwned::from(cs))
+    else if let Some(id) = id {
+        let assets = db.find_assets_by_id(id.as_str()).expect("--id is not a valid regular expression");
+        if assets.len() == 0 {
+            panic!("No assets found with id: {id}");
         } else {
-            panic!("One of --guid, --loc, or --cs must be provided");
-        };
-        
-        let asset = db.asset(&id);
-        match asset {
-            None => {
-                panic!("No asset found with ID: {}", id);
-            },
-            Some(asset) => {
-                println!("{}", asset.bind(&db));
-            },
-        };
-    }
-    else if let Some(name) = name {
-        let mut count = 0;
-        for asset in db.assets_by_name(&name) {
-            count += 1;
-            println!("{}", asset.bind(&db));
-        }
-        if count == 0 {
-            panic!("No asset found with name: {}", name);
+            for a in assets {
+                println!("{}", a.bind(&db));
+            }
         }
     }
     else if let Some(path) = path {
-        let pathbuf = Some(PathBuf::from(path));
-        if let Some(a) = db.assets().find(|a| a.path.as_ref() == pathbuf.as_ref()) {
-            println!("{}", a.bind(&db));
+        let assets = db.find_assets_by_name(path.as_str()).expect("--path is not a valid regular expression");
+        if assets.len() == 0 {
+            panic!("No assets found with path: {path}");
         } else {
-            panic!("No asset found with path: {}", pathbuf.as_ref().unwrap().display());
+            for a in assets {
+                println!("{}", a.bind(&db));
+            }
         }
     }
     else {

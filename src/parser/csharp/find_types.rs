@@ -28,17 +28,19 @@ pub fn find_types(
     def_assets: &mut Vec<Asset>, 
     broker: &Arc<Mutex<TypeBroker>>,
 ) -> Result<(), ParseError> {
-    let info = evaluate_structure(tree, buffer).map_err(|e| ParseError {
-        path: asset.path.as_ref().unwrap().clone(),
-        message: "Failed to analyze structure of C# file".to_string(),
-        inner: Some(Box::new(e)),
-    })?;
+    let info = evaluate_structure(tree, buffer)
+        .map_err(|e| ParseError {
+            path: asset.path.as_ref().unwrap().clone(),
+            message: "Failed to analyze structure of C# file".to_string(),
+            inner: Some(Box::new(e)),
+        })?;
 
-    let asset_map = process_declarations(&info).map_err(|e| ParseError {
-        path: asset.path.as_ref().unwrap().clone(),
-        message: "Failed to qualify type declaration names".to_string(),
-        inner: Some(Box::new(e)),
-    })?;
+    let asset_map = process_declarations(&info)
+        .map_err(|e| ParseError {
+            path: asset.path.as_ref().unwrap().clone(),
+            message: "Failed to qualify type declaration names".to_string(),
+            inner: Some(Box::new(e)),
+        })?;
 
     for name in asset_map.values() {
         def_assets.push(Asset {

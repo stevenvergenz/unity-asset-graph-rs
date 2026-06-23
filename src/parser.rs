@@ -31,10 +31,10 @@ pub struct ParseError {
 }
 
 impl ParseError {
-    pub fn new(path: &Path, message: String) -> Self {
+    pub fn new(path: impl Into<PathBuf>, message: impl Into<String>) -> Self {
         Self {
-            path: path.to_path_buf(),
-            message,
+            path: path.into(),
+            message: message.into(),
             inner: None,
         }
     }
