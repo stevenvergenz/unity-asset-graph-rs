@@ -149,7 +149,7 @@ fn find_assets(db_path: String, root_path: String, relative_to: Option<String>) 
         panic!("Error finding assets: {}", e);
     }
 
-    DatabaseFile::from(db).save(db_path).expect("Error saving database file");
+    DatabaseFile::from(db).save(&db_path).expect("Error saving database file");
 }
 
 fn info(db_path: &str, id: Option<String>, path: Option<String>, roots: bool) {

@@ -135,6 +135,13 @@ impl QualifiedName for QualifiedNameOwned {
     type Part = NamePart;
     type Str = String;
 
+    fn global() -> Self {
+        Self {
+            parts: vec![],
+            alias: Some("global".into()),
+        }
+    }
+
     fn alias(&self) -> Option<&Self::Str> {
         self.alias.as_ref()
     }
@@ -194,6 +201,12 @@ impl From<&str> for QualifiedNameOwned {
 impl From<String> for QualifiedNameOwned {
     fn from(value: String) -> Self {
         QualifiedNameRef::from(value.as_str()).to_owned()
+    }
+}
+
+impl From<&Self> for QualifiedNameOwned {
+    fn from(value: &Self) -> Self {
+        value.clone()
     }
 }
 

@@ -1,7 +1,9 @@
 mod owned;
 mod r#ref;
+mod search;
 pub use owned::*;
 pub use r#ref::*;
+pub use search::*;
 
 use std::{
     fmt::{Display, Formatter, Result as FResult},
@@ -50,6 +52,7 @@ pub trait QualifiedName: Clone + PartialEq + Eq + PartialOrd + Ord + std::hash::
     type Part: QualifiedNamePart;
     type Str: Borrow<str>;
 
+    fn global() -> Self;
     fn parts(&self) -> impl ExactSizeIterator<Item=&Self::Part>;
     fn alias(&self) -> Option<&Self::Str>;
 
@@ -57,6 +60,13 @@ pub trait QualifiedName: Clone + PartialEq + Eq + PartialOrd + Ord + std::hash::
     fn split_off(&mut self, index: usize) -> Self;
 
     fn resolve_alias(&mut self, namespace: Self);
+
+    fn is_global(&self) -> bool {
+        match self.alias() {
+            Some(a) => &*a.borrow() == "global" && self.len() == 0,
+            None => false,
+        }
+    }
 
     fn len(&self) -> usize {
         self.parts().len()

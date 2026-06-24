@@ -7,7 +7,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use regex::RegexBuilder;
 use crate::{
-    QualifiedName, QualifiedNameOwned, asset::Asset, asset_type::AssetType, id::Id, parser::ParseError
+    QualifiedName, QualifiedNameOwned, asset::Asset, asset_type::AssetType, id::Id, parser::{ParseError, TypeBroker}
 };
 
 mod roots;

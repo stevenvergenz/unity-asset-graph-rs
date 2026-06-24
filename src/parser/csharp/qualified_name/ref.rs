@@ -47,7 +47,6 @@ impl<'a> From<&'a str> for NamePartRef<'a> {
     fn from(value: &'a str) -> Self {
         if let Some(open_index) = value.find('<') {
             let (n, g) = value.split_at(open_index);
-            println!("Generic split parts: '{n}' and '{g}'");
             Self { name: n, generics: generic_args_count_from_str(g) }
         } else {
             Self { name: value, generics: 0 }
@@ -153,6 +152,13 @@ impl<'a> QualifiedNameRef<'a> {
 impl<'a> QualifiedName for QualifiedNameRef<'a> {
     type Part = NamePartRef<'a>;
     type Str = &'a str;
+
+    fn global() -> Self {
+        Self {
+            parts: vec![],
+            alias: Some("global"),
+        }
+    }
 
     fn parts(&self) -> impl ExactSizeIterator<Item=&Self::Part> {
         self.parts.iter()
