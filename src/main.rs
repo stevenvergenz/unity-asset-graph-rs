@@ -7,7 +7,7 @@ use std::{
     path::PathBuf,
 };
 use uuid::Uuid;
-use asset_graph_rs::{Asset, AssetType, Database, DatabaseFile, Id, Relation, QualifiedName};
+use unity_asset_graph::{Asset, AssetType, Database, DatabaseFile, Id, Relation, QualifiedName };
 
 #[derive(Parser)]
 struct CliArgs {
