@@ -218,8 +218,8 @@ const VAR_DECL: &str = concatcp!(
 /// Matches all uses of variables, which will include some type references not caught by `TYPE_USAGE`. Filter against
 /// `VAR_DECL` in the current scope to find them. Captures the variable/type name as "var_use".
 const VAR_USAGE: &str = r#"
-    (expression/identifier) @var_use
-    (expression/generic_name) @var_use
+    (lvalue_expression/identifier) @var_use
+    (lvalue_expression/generic_name) @var_use
 "#;
 
 /// Matches everything we're looking for. Captures "ns_use", "type_decl", "var_decl", "id", "type_use", and "var_use".
@@ -233,7 +233,7 @@ pub const QUERY_ALL: &str = concatcp!(
 );
 
 pub static QUERY: LazyLock<Query> = LazyLock::new(|| {
-    Query::new(&CS_LANG, QUERY_ALL).expect("Failed to compile query")
+    Query::new(&CS_LANG, QUERY_ALL).unwrap_or_else(|e| panic!("Failed to compile query {QUERY_ALL} {e}"))
 });
 
 pub mod fields {
@@ -546,7 +546,7 @@ mod test {
 
     #[test]
     fn var_usage() {
-        let query = Query::new(&CS_LANG, VAR_USAGE).expect("Failed to compile namespace query");
+        let query = Query::new(&CS_LANG, VAR_USAGE).unwrap_or_else(|e| panic!("Failed to compile var_use query {VAR_USAGE} {e}"));
         let mut cursor = QueryCursor::new();
         let iter = cursor.matches(&query, VAR_TEST_TREE.root_node(), VAR_TEST_CODE);
         assert_matches(&query, iter, vec![
