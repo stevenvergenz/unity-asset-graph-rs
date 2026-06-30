@@ -7,9 +7,7 @@ use std::{
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use crate::{
-    asset_type::AssetType,
-    id::Id,
-    database::Database,
+    asset_type::AssetType, database::{AssetFilter, Database}, id::Id,
 };
 
 #[derive(Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
@@ -70,6 +68,38 @@ pub enum BoundRelation<'a> {
     ContainedBy(BoundAsset<'a>),
 }
 
+impl<'a> BoundRelation<'a> {
+    pub fn matches_type(&self, typ: &Relation) -> Option<&BoundAsset<'a>> {
+        match (self, typ) {
+            (Self::Uses(a), Relation::Uses(_)) => Some(a),
+            (Self::UsedBy(a), Relation::UsedBy(_)) => Some(a),
+            (Self::Contains(a), Relation::Contains(_)) => Some(a),
+            (Self::ContainedBy(a), Relation::ContainedBy(_)) => Some(a),
+            _ => None,
+        }
+    }
+
+    pub fn asset(&self) -> &BoundAsset<'a> {
+        match self {
+            Self::Uses(a) => a,
+            Self::UsedBy(a) => a,
+            Self::Contains(a) => a,
+            Self::ContainedBy(a) => a,
+        }
+    }
+}
+
+impl Display for BoundRelation<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            Self::Uses(a) => write!(f, "Uses {}", a.id()),
+            Self::UsedBy(a) => write!(f, "UsedBy {}", a.id()),
+            Self::Contains(a) => write!(f, "Contains {}", a.id()),
+            Self::ContainedBy(a) => write!(f, "ContainedBy {}", a.id()),
+        }
+    }
+}
+
 #[derive(Deserialize, Serialize, Default, PartialEq, Eq, Debug, Clone)]
 pub struct Asset {
     pub id: Id,
@@ -100,6 +130,7 @@ impl Asset {
             asset: self,
             db,
             indent: 0,
+            path_cache: RefCell::new(None),
         }
     }
 
@@ -116,9 +147,9 @@ impl Asset {
         self.relations.iter().chain(self.back_relations.iter())
     }
 
-    pub fn id_matches(&self, regex: &Regex) -> bool {
+    pub fn id_matches(&self, regex: &AssetFilter) -> bool {
         let cache = self.id_cache.take().unwrap_or_else(|| self.id.to_string());
-        let matches = regex.is_match(&cache);
+        let matches = regex.matches(&cache);
         self.id_cache.replace(Some(cache));
         matches
     }
@@ -128,18 +159,19 @@ pub struct BoundAsset<'a> {
     pub asset: &'a Asset,
     pub db: &'a Database,
     indent: usize,
+    path_cache: RefCell<Option<&'a PathBuf>>,
 }
 
 impl<'a> BoundAsset<'a> {
-    pub fn id(&self) -> &Id {
+    pub fn id(&self) -> &'a Id {
         &self.asset.id
     }
 
-    pub fn asset_type(&self) -> &AssetType {
+    pub fn asset_type(&self) -> &'a AssetType {
         &self.asset.asset_type
     }
 
-    pub fn asset(&self) -> &Asset {
+    pub fn asset(&self) -> &'a Asset {
         &self.asset
     }
 
@@ -148,6 +180,7 @@ impl<'a> BoundAsset<'a> {
             asset: self.asset,
             db: self.db,
             indent: self.indent + 1,
+            path_cache: self.path_cache,
         }
     }
 
@@ -156,64 +189,134 @@ impl<'a> BoundAsset<'a> {
             asset: self.asset,
             db: self.db,
             indent: self.indent.saturating_sub(1),
+            path_cache: self.path_cache,
         }
     }
 
-    pub fn path(&self) -> &PathBuf {
-        let mut queue = std::collections::VecDeque::from([self.asset]);
-        while let Some(asset) = queue.pop_front() {
-            if let Some(p) = &asset.path {
-                return p;
-            } else {
-                let containers = asset.relations_iter().filter_map(|r| {
-                    if let Relation::ContainedBy(id) = &r {
-                        Some(self.db.asset(id).expect("Dangling used-by relation"))
-                    } else {
-                        None
+    pub fn path(&self) -> Option<&'a PathBuf> {
+        let mut cache = self.path_cache.take();
+
+        if cache.is_none() {
+            let mut queue = std::collections::VecDeque::from([self.asset]);
+            while let Some(asset) = queue.pop_front() {
+                if let Some(p) = &asset.path {
+                    cache = Some(p);
+                    break;
+                } else {
+                    let containers = asset.relations_iter().filter_map(|r| {
+                        if let Relation::ContainedBy(id) = &r {
+                            Some(self.db.asset(id).expect("Dangling used-by relation"))
+                        } else {
+                            None
+                        }
+                    });
+                    for c in containers {
+                        queue.push_back(c.asset);
                     }
-                });
-                for c in containers {
-                    queue.push_back(c.asset);
                 }
             }
+            self.path_cache.replace(cache.clone());
         }
-        panic!("No ancestor of {} has a path!", self.asset.id);
+        cache
+    }
+
+    pub fn path_matches(&self, regex: &AssetFilter) -> bool {
+        self.path().map(|p| regex.matches(&p.to_string_lossy())).unwrap_or(false)
     }
 
     pub fn relations_iter(&self) -> impl Iterator<Item=BoundRelation<'a>> {
         self.asset.relations_iter().filter_map(|r| r.bind(self.db))
     }
 
+    pub fn display_full<'b>(&'b self) -> BoundAssetFullDisplay<'a, 'b> {
+        BoundAssetFullDisplay {
+            asset: self,
+            ref_filter: Box::new(|_| true),
+        }
+    }
+
+    pub fn display_full_filtered<'b>(&'b self, filter: impl Fn(&BoundRelation) -> bool + 'b) -> BoundAssetFullDisplay<'a, 'b>
+    where 'a: 'b {
+        BoundAssetFullDisplay {
+            asset: self,
+            ref_filter: Box::new(filter),
+        }
+    }
+
+    pub fn unfiltered(_: &BoundAsset) -> bool {
+        true
+    }
+
+    pub fn display_short<'b>(&'b self) -> BoundAssetShortDisplay<'a, 'b>
+    where 'a: 'b {
+        BoundAssetShortDisplay(self)
+    }
+}
+
+impl<'a> Clone for BoundAsset<'a> {
+    fn clone(&self) -> Self {
+        Self {
+            asset: self.asset,
+            db: self.db,
+            indent: self.indent,
+            path_cache: self.path_cache.clone(),
+        }
+    }
+}
+
+impl std::hash::Hash for BoundAsset<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id().hash(state)
+    }
+}
+
+impl std::cmp::PartialEq for BoundAsset<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.asset() == other.asset()
+    }
+}
+impl std::cmp::Eq for BoundAsset<'_> {}
+
+pub struct BoundAssetFullDisplay<'a, 'b> {
+    pub asset: &'b BoundAsset<'a>,
+    pub ref_filter: Box<dyn Fn(&BoundRelation) -> bool + 'b>,
+}
+
+impl BoundAssetFullDisplay<'_, '_> {
     fn fmt_relation(&self, f: &mut Formatter<'_>, relation: Relation) -> Result {
-        let indent_str = "  ".repeat(self.indent + 1);
-        let mut deps: Vec<String> = self.asset.relations_iter()
-            .filter_map(|r| r.matches_type(&relation))
-            .map(|id| {
-                if let Some(dep_asset) = self.db.asset(id) {
-                    dep_asset.path().to_string_lossy().into_owned()
-                }
-                else {
-                    id.to_string()
+        let indent_str = "  ".repeat(self.asset.indent + 1);
+        let mut deps: Vec<_> = self.asset.relations_iter()
+            .filter_map(|r| {
+                if r.matches_type(&relation).is_some() {
+                    if (self.ref_filter)(&r) {
+                        Some(r.asset().display_short().to_string())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
                 }
             }).collect();
         deps.sort();
 
-        writeln!(f, "{indent_str}{relation} ({}):", deps.len())?;
-        for dep in &deps {
-            writeln!(f, "{indent_str}- {}", dep)?;
+        if deps.len() > 0 {
+            writeln!(f, "{indent_str}{relation} ({}):", deps.len())?;
+            for dep in &deps {
+                writeln!(f, "{indent_str}- {}", dep)?;
+            }
         }
 
         Ok(())
     }
 }
 
-impl<'a> Display for BoundAsset<'a> {
+impl Display for BoundAssetFullDisplay<'_, '_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        let first_indent = format!("{}- ", "  ".repeat(self.indent));
-        let indent_str = "  ".repeat(self.indent + 1);
-        writeln!(f, "{first_indent}Asset ID: {}", self.asset.id)?;
-        writeln!(f, "{indent_str}Type: {}", self.asset.asset_type)?;
-        if let Some(path) = &self.asset.path {
+        let first_indent = format!("{}- ", "  ".repeat(self.asset.indent));
+        let indent_str = "  ".repeat(self.asset.indent + 1);
+        writeln!(f, "{first_indent}Asset ID: {}", self.asset.id())?;
+        writeln!(f, "{indent_str}Type: {}", self.asset.asset_type())?;
+        if let Some(path) = self.asset.path() {
             writeln!(f, "{indent_str}Path: {}", path.display())?;
         }
 
@@ -226,12 +329,19 @@ impl<'a> Display for BoundAsset<'a> {
     }
 }
 
-impl<'a> Clone for BoundAsset<'a> {
-    fn clone(&self) -> Self {
-        Self {
-            asset: self.asset,
-            db: self.db,
-            indent: self.indent,
+pub struct BoundAssetShortDisplay<'a, 'b>(pub &'b BoundAsset<'a>);
+impl Display for BoundAssetShortDisplay<'_, '_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match (self.0.id(), self.0.path()) {
+            (Id::CsType(name), Some(p)) => {
+                write!(f, "{name} in {p}", p = p.file_name().expect("Bad path").to_str().expect("Bad path"))
+            },
+            (_, Some(p)) => {
+                write!(f, "{}", p.display())
+            },
+            _ => {
+                write!(f, "{}", self.0.id())
+            },
         }
     }
 }

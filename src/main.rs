@@ -3,9 +3,9 @@ use clap::{
     Subcommand,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
 };
-use unity_asset_graph::{AssetType, Database, DatabaseFile, Id, Relation, BoundAsset, BoundRelation};
+use unity_asset_graph::{AssetType, Database, DatabaseFile, Id, Relation, BoundAsset, BoundRelation, AssetFilter};
 
 #[derive(Parser)]
 struct CliArgs {
@@ -24,11 +24,11 @@ enum CliCommand {
         #[arg(long, short = 'r', default_value = ".", help = "If supplied, make paths in the database relative to this path")]
         relative_to: String,
     },
-    #[command(about = "Get information about a specific asset by ID or name")]
+    #[command(about = "Get information about specific assets by ID or name")]
     Info {
-        #[arg(long, help = "Partial ID of the asset")]
+        #[arg(long, short, help = "Partial ID of the asset")]
         id: Option<String>,
-        #[arg(long, help = "Partial path of the asset")]
+        #[arg(long, short, help = "Partial path of the asset")]
         path: Option<String>,
         #[arg(long, help = "Show the list of detected package roots")]
         roots: bool,
@@ -49,14 +49,23 @@ enum CliCommand {
         #[arg(long, default_value = "false", help = "If true, only print IDs of broken references")]
         id_only: bool,
     },
-    #[command(about = "Find references to assets outside of the given folders")]
+    /// Show usages by in-group assets of out-group assets
     Outside {
-        #[arg(long, short = 'i', help = "Search for scripts within this container asset")]
-        id: Vec<String>,
-        #[arg(long, short = 'p', help = "Search for scripts within this container asset")]
-        path: Vec<String>,
-        #[arg(long, short = 'x', help = "Ignore these paths")]
-        ignore: Vec<String>,
+        /// Assets recursively contained by this partial ID are "in"
+        #[arg(long)]
+        in_id: Vec<String>,
+
+        /// Assets recursively contained by this partial path are "in"
+        #[arg(long)]
+        in_path: Vec<String>,
+
+        /// Only show out-group assets with this partial id
+        #[arg(long)]
+        out_id: Vec<String>,
+
+        /// Only show out-group assets with this partial path
+        #[arg(long)]
+        out_path: Vec<String>,
     }
 }
 
@@ -134,8 +143,8 @@ fn main() {
         CliCommand::Broken { id_type, id_only } => {
             find_broken_refs(&args.db_path, id_type, id_only);
         },
-        CliCommand::Outside { id, path, ignore } => {
-            find_outside_refs(&args.db_path, id, path, ignore);
+        CliCommand::Outside { in_id, in_path, out_id, out_path } => {
+            find_outside_refs(&args.db_path, in_id, in_path, out_id, out_path);
         }
     }
 }
@@ -163,27 +172,31 @@ fn info(db_path: &str, id: Option<String>, path: Option<String>, roots: bool) {
         }
     }
     else if let Some(id) = id {
-        let assets = db.find_assets_by_id(id.as_str()).expect("--id is not a valid regular expression");
+        let id = id.try_into().unwrap_or_else(|e| panic!("Invalid regular expression: {e}"));
+        let assets = db.find_assets_by_id(&id);
         if assets.len() == 0 {
             panic!("No assets found with id: {id}");
         } else {
             for a in assets {
-                println!("{a}");
+                println!("{}", a.display_full());
             }
         }
     }
     else if let Some(path) = path {
-        let assets = db.find_assets_by_path(path.as_str()).expect("--path is not a valid regular expression");
+        let path = path.replace('/', &regex::escape(std::path::MAIN_SEPARATOR_STR))
+            .try_into()
+            .unwrap_or_else(|e| panic!("Invalid regular expression: {e}"));
+        let assets = db.find_assets_by_path(&path);
         if assets.len() == 0 {
             panic!("No assets found with path: {path}");
         } else {
             for a in assets {
-                println!("{a}");
+                println!("{}", a.display_full());
             }
         }
     }
     else {
-        panic!("One of --name, --guid, --loc, or --cs must be provided");
+        panic!("One of --id or --path must be provided");
     }
     
 }
@@ -221,7 +234,7 @@ fn find_unused(db_path: &str, id_type: Option<OrphanFilter>, id_only: bool, summ
                 println!("{}", asset.id());
             }
             else {
-                println!("{}", asset.clone().indent());
+                println!("{}", asset.clone().indent().display_full());
             }
         }
     }
@@ -257,7 +270,7 @@ fn find_broken_refs(db_path: &str, id_type: Option<OrphanFilter>, id_only: bool)
             println!("{}", asset.id());
         }
         else {
-            println!("{}", asset.clone().indent());
+            println!("{}", asset.clone().indent().display_full());
         }
     }
     if broken_refs.is_empty() {
@@ -265,23 +278,44 @@ fn find_broken_refs(db_path: &str, id_type: Option<OrphanFilter>, id_only: bool)
     }
 }
 
-fn find_outside_refs(db_path: &str, container_id: Vec<String>, container_path: Vec<String>, ignore_paths: Vec<String>) {
+fn find_outside_refs(db_path: &str, in_id: Vec<String>, in_path: Vec<String>, out_id: Vec<String>, out_path: Vec<String>) {
     let db = DatabaseFile::load(db_path)
         .expect(format!("Failed to load database file from {}", db_path).as_str())
         .database;
 
-    let mut roots = vec![];
-    for id in container_id {
-        roots.extend(db.find_assets_by_id(&id)
-            .expect("Supplied partial ID is not a valid regular expression"));
+    let mut roots = HashSet::new();
+    for id in in_id {
+        let id = id.try_into().unwrap_or_else(|e| panic!("Invalid regular expression: {e}"));
+        roots.extend(db.find_assets_by_id(&id));
     }
-    for path in container_path {
-        roots.extend(db.find_assets_by_path(&path)
-            .expect("Supplied partial path is not a valid regular expression"));
+    for path in in_path.into_iter().map(|p| p.replace("/", &regex::escape(std::path::MAIN_SEPARATOR_STR))) {
+        let path = path.try_into().unwrap_or_else(|e| panic!("Invalid regular expression: {e}"));
+        roots.extend(db.find_assets_by_path(&path));
     }
     if roots.is_empty() {
         panic!("At least one container asset must be specified via --id or --path");
     }
+
+    let out_id: Vec<_> = out_id.into_iter()
+        .filter_map(|p| {
+            let re = AssetFilter::try_from(p.as_str());
+            if let Err(e) = &re {
+                eprintln!("Supplied out-group ID is not a valid regular expression: {p}\r\n{e}");
+            }
+            re.ok()
+        })
+        .collect();
+
+    let out_path: Vec<_> = out_path.into_iter()
+        .filter_map(|p| {
+            let p = p.replace("/", &regex::escape(std::path::MAIN_SEPARATOR_STR));
+            let re =  AssetFilter::try_from(p.as_str());
+            if let Err(e) = &re {
+                eprintln!("Supplied out-group path is not a valid regular expression: {p}\r\n{e}");
+            }
+            re.ok()
+        })
+        .collect();
 
     let root_len = roots.len();
     let mut inside = HashMap::new();
@@ -294,34 +328,23 @@ fn find_outside_refs(db_path: &str, container_id: Vec<String>, container_path: V
     for asset in inside.values() {
         for relation in asset.relations_iter() {
             if let BoundRelation::Uses(asset) = relation
-                && !inside.contains_key(asset.id()) {
-                if ignore_paths.iter().all(|p| !asset.path().starts_with(p)) {
-                    outside.insert(asset.id().clone(), asset);
-                }
+                && !inside.contains_key(asset.id())
+                && (out_id.len() == 0 || out_id.iter().any(|re| asset.asset().id_matches(re)))
+                && (out_path.len() == 0 || out_path.iter().any(|re| asset.path_matches(re))) {
+                outside.insert(asset.id().clone(), asset);
             }
         }
     }
 
     println!("Outside references ({}):", outside.len());
     for outside in outside.values() {
-        println!("- {} ({})", &outside.id(), outside.path().display());
-
-        let users: Vec<BoundAsset> = outside.asset().relations_iter()
-            .filter_map(|r| {
-                if let Relation::UsedBy(id) = r && inside.contains_key(id) {
-                    db.asset(id)
-                } else {
-                    None
-                }
-            }).collect();
-
-        println!("  Used by: ({})", users.len());
-
-        for user in users {
-            println!("    {}, {}", user.id(), user.path().display());
-        }
-
-        println!();
+        println!("{}", outside.display_full_filtered(|r| {
+            if let BoundRelation::UsedBy(a) = r && inside.contains_key(a.id()) {
+                true
+            } else {
+                false
+            }
+        }));
     }
 }
 
