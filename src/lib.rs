@@ -8,7 +8,7 @@ mod util;
 pub mod storage;
 
 pub use database::{Database, DatabaseError};
-pub use asset::{Asset, BoundAsset, Relation};
+pub use asset::{Asset, BoundAsset, Relation, BoundRelation};
 pub use asset_type::AssetType;
 pub use id::Id;
 pub use storage::{DatabaseFile, Magic, Version};

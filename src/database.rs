@@ -146,7 +146,7 @@ impl Database {
         Ok(out.into_iter())
     }
 
-    pub fn find_assets_by_id(&self, regex: &str) -> Result<impl ExactSizeIterator<Item = &Asset>, DatabaseError> {
+    pub fn find_assets_by_id<'a>(&'a self, regex: &str) -> Result<impl ExactSizeIterator<Item = BoundAsset<'a>>, DatabaseError> {
         let re = RegexBuilder::new(regex)
             .unicode(false)
             .build()
@@ -155,7 +155,7 @@ impl Database {
         let mut out = vec![];
         for (id, asset) in self.assets.iter() {
             if asset.id_matches(&re) {
-                out.push(asset);
+                out.push(asset.bind(self));
             }
         }
 

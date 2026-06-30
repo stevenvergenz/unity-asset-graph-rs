@@ -39,6 +39,17 @@ impl Relation {
             _ => None,
         }
     }
+
+    pub fn bind<'a>(&'a self, db: &'a Database) -> Option<BoundRelation<'a>> {
+        db.asset(self.id()).map(|a| {
+            match self {
+                Self::Uses(id) => BoundRelation::Uses(a),
+                Self::UsedBy(id) => BoundRelation::UsedBy(a),
+                Self::Contains(id) => BoundRelation::Contains(a),
+                Self::ContainedBy(id) => BoundRelation::ContainedBy(a),
+            }
+        })
+    }
 }
 
 impl Display for Relation {
@@ -50,6 +61,13 @@ impl Display for Relation {
             Self::ContainedBy(_) => write!(f, "Contained By"),
         }
     }
+}
+
+pub enum BoundRelation<'a> {
+    Uses(BoundAsset<'a>),
+    UsedBy(BoundAsset<'a>),
+    Contains(BoundAsset<'a>),
+    ContainedBy(BoundAsset<'a>),
 }
 
 #[derive(Deserialize, Serialize, Default, PartialEq, Eq, Debug, Clone)]
@@ -160,6 +178,10 @@ impl<'a> BoundAsset<'a> {
             }
         }
         panic!("No ancestor of {} has a path!", self.asset.id);
+    }
+
+    pub fn relations_iter(&self) -> impl Iterator<Item=BoundRelation<'a>> {
+        self.asset.relations_iter().filter_map(|r| r.bind(self.db))
     }
 
     fn fmt_relation(&self, f: &mut Formatter<'_>, relation: Relation) -> Result {

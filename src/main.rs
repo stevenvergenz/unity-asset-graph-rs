@@ -5,7 +5,7 @@ use clap::{
 use std::{
     collections::HashMap,
 };
-use unity_asset_graph::{Asset, AssetType, Database, DatabaseFile, Id, Relation, QualifiedName, BoundAsset};
+use unity_asset_graph::{AssetType, Database, DatabaseFile, Id, Relation, BoundAsset, BoundRelation};
 
 #[derive(Parser)]
 struct CliArgs {
@@ -168,7 +168,7 @@ fn info(db_path: &str, id: Option<String>, path: Option<String>, roots: bool) {
             panic!("No assets found with id: {id}");
         } else {
             for a in assets {
-                println!("{}", a.bind(&db));
+                println!("{a}");
             }
         }
     }
@@ -273,8 +273,7 @@ fn find_outside_refs(db_path: &str, container_id: Vec<String>, container_path: V
     let mut roots = vec![];
     for id in container_id {
         roots.extend(db.find_assets_by_id(&id)
-            .expect("Supplied partial ID is not a valid regular expression")
-            .map(|a| a.bind(&db)));
+            .expect("Supplied partial ID is not a valid regular expression"));
     }
     for path in container_path {
         roots.extend(db.find_assets_by_path(&path)
@@ -284,29 +283,28 @@ fn find_outside_refs(db_path: &str, container_id: Vec<String>, container_path: V
         panic!("At least one container asset must be specified via --id or --path");
     }
 
+    let root_len = roots.len();
     let mut inside = HashMap::new();
-    for root in &roots {
-        inside = find_all(&db, root.asset(), inside);
+    for root in roots {
+        inside = find_all(root, inside);
     }
-    println!("In-group contains {} assets from {} containers", inside.len(), roots.len());
+    println!("In-group contains {} assets from {root_len} containers", inside.len());
 
     let mut outside = HashMap::new();
     for asset in inside.values() {
         for relation in asset.relations_iter() {
-            if let Relation::Uses(id) = relation
-                && !inside.contains_key(id) {
-                let a = db.asset(id).expect("Bad used-by ref!");
-                let path = a.path();
-                if ignore_paths.iter().all(|p| !path.starts_with(p)) {
-                    outside.insert(id.clone(), (a, path));
+            if let BoundRelation::Uses(asset) = relation
+                && !inside.contains_key(asset.id()) {
+                if ignore_paths.iter().all(|p| !asset.path().starts_with(p)) {
+                    outside.insert(asset.id().clone(), asset);
                 }
             }
         }
     }
 
     println!("Outside references ({}):", outside.len());
-    for (outside, path) in outside.values() {
-        println!("- {} ({})", &outside.id(), path.display());
+    for outside in outside.values() {
+        println!("- {} ({})", &outside.id(), outside.path().display());
 
         let users: Vec<BoundAsset> = outside.asset().relations_iter()
             .filter_map(|r| {
@@ -327,14 +325,13 @@ fn find_outside_refs(db_path: &str, container_id: Vec<String>, container_path: V
     }
 }
 
-fn find_all<'a>(db: &'a Database, asset: &'a Asset, mut results: HashMap<Id, &'a Asset>) -> HashMap<Id, &'a Asset> {
-    results.insert(asset.id.clone(), asset);
+fn find_all<'a>(asset: BoundAsset<'a>, mut results: HashMap<Id, BoundAsset<'a>>) -> HashMap<Id, BoundAsset<'a>> {
     for relation in asset.relations_iter() {
-        if let Relation::Contains(other) = relation
-            && let Some(other) = db.asset(other) {
-            results = find_all(db, other, results);
+        if let BoundRelation::Contains(other) = relation {
+            results = find_all(other, results);
         }
     }
+    results.insert(asset.id().clone(), asset);
     results
 }
 

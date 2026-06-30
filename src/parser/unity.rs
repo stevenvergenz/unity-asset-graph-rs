@@ -151,12 +151,12 @@ PrefabInstance:
     #[test]
     fn test_parse_unity_reader() {
         let mut reader = BufReader::new(PREFAB.as_bytes());
-        let mut asset = Asset {
-            id: Id::Guid(Uuid::nil()),
-            asset_type: AssetType::Prefab,
-            path: Some(PathBuf::from("test.prefab")),
-            ..Default::default()
-        };
+        let mut asset = Asset::new(
+            Id::Guid(Uuid::nil()),
+            AssetType::Prefab,
+            Some(PathBuf::from("test.prefab")),
+            [],
+        );
         let result = parse_reader(&mut reader, &mut asset, None);
 
         assert!(result.is_ok());
