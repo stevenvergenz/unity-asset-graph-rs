@@ -100,10 +100,7 @@ impl Database {
                     }
                 },
                 Err(e) => {
-                    let err = DatabaseError {
-                        message: format!("Error parsing asset '{}': {}", asset.path.unwrap().display(), e),
-                        inner: Some(e),
-                    };
+                    let err = DatabaseError::parse(asset.path.unwrap(), "Error parsing asset");
                     if let Err(e) = err_tx.send(err) {
                         eprintln!("Error sending error: {}", e);
                         continue;

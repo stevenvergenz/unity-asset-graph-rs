@@ -1,14 +1,10 @@
 use std::{
-    collections::{HashSet, HashMap },
-    path::PathBuf,
-    fs,
+    cell::RefCell, collections::{HashMap, HashSet }, fmt::Display, fs, path::PathBuf,
 };
 use serde::{Deserialize, Serialize};
+use regex::{Regex, RegexBuilder};
 use crate::{
-    asset::Asset,
-    asset_type::AssetType,
-    parser::ParseError,
-    id::Id,
+    BoundAsset, QualifiedName, QualifiedNameOwned, asset::Asset, asset_type::AssetType, id::Id, parser::{ParseError, TypeBroker}
 };
 
 mod roots;
@@ -17,17 +13,24 @@ mod populate_pass2;
 mod populate_pass3;
 
 #[derive(Debug)]
-pub struct DatabaseError {
-    message: String,
-    inner: Option<ParseError>,
+pub enum DatabaseError {
+    Parse(ParseError),
+    Regex(regex::Error),
+    BadPath(PathBuf),
+}
+
+impl DatabaseError {
+    pub fn parse(path: impl Into<PathBuf>, message: impl Into<String>) -> Self {
+        Self::Parse(ParseError::new(path, message))
+    }
 }
 
 impl std::fmt::Display for DatabaseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(inner) = &self.inner {
-            write!(f, "{}: {}", self.message, inner)
-        } else {
-            write!(f, "{}", self.message)
+        match self {
+            Self::Parse(p) => write!(f, "Parse error: {p}"),
+            Self::Regex(r) => write!(f, "Regex error: {r}"),
+            Self::BadPath(p) => write!(f, "Bad path: {}", p.display()),
         }
     }
 }
@@ -61,10 +64,7 @@ impl Database {
             assets: HashMap::new(),
         };
 
-        match db.add_root_str(root) {
-            Ok(_) => Ok(db),
-            Err(e) => Err(e),
-        }
+        db.add_root_str(root).map(|_| db)
     }
 
     pub fn populate(&mut self) -> Result<(), DatabaseError> {
@@ -88,19 +88,21 @@ impl Database {
             // loop over the asset's (forward) relations
             for relation in asset.relations.iter() {
                 // take the related asset out of the map too
-                let (rel_id, mut rel_asset) = match self.assets.remove_entry(relation.id()) {
-                    Some(e) => e,
+                let (rel_id, rel_asset) = match self.assets.remove_entry(relation.id()) {
+                    Some((rel_id, mut rel_asset)) => {
+                        rel_asset.back_relations.insert(asset.invert_relation(relation));
+                        (rel_id, rel_asset)
+                    },
                     None => {
-                        let a = Asset {
-                            id: relation.id().clone(),
-                            asset_type: AssetType::BrokenRef,
-                            ..Default::default()
-                        };
+                        let a = Asset::new(
+                            relation.id().clone(), 
+                            AssetType::BrokenRef, 
+                            None, 
+                            [asset.invert_relation(relation)],
+                        );
                         (relation.id().clone(), a)
                     },
                 };
-                // add the back relation to the related asset
-                rel_asset.back_relations.insert(asset.invert_relation(relation));
                 self.assets.insert(rel_id, rel_asset);
             }
             self.assets.insert(asset_id, asset);
@@ -115,32 +117,106 @@ impl Database {
         self.loc_roots.iter()
     }
 
-    pub fn asset(&self, id: &Id) -> Option<&Asset> {
-        self.assets.get(id)
+    pub fn asset<'a>(&'a self, id: &Id) -> Option<BoundAsset<'a>> {
+        self.assets.get(id).map(|a| a.bind(self))
     }
 
     pub fn asset_mut(&mut self, id: &Id) -> Option<&mut Asset> {
         self.assets.get_mut(id)
     }
 
-    pub fn assets(&self) -> impl Iterator<Item = &Asset> {
-        self.assets.values()
+    pub fn assets<'a>(&'a self) -> impl Iterator<Item = BoundAsset<'a>> {
+        self.assets.values().map(|a| a.bind(self))
     }
 
-    pub fn assets_by_name(&self, name: &str) -> impl Iterator<Item = &Asset> {
-        self.assets.values().filter(move |a| {
-            if let Some(p) = a.path.as_ref()
-                && let Some(file_name) = p.file_name()
-                && let Some(name_str) = file_name.to_str()
-                && name_str == name {
-                true
+    pub fn find_assets_by_path<'a>(&'a self, filter: &AssetFilter) -> impl ExactSizeIterator<Item = BoundAsset<'a>> {
+        let mut out = vec![];
+        for a in self.assets.values() {
+            if a.bind(self).path_matches(filter) {
+                out.push(a.bind(self));
             }
-            else if let Id::CsType { name: n, .. } = &a.id && n == name {
-                return true;
+        }
+        out.into_iter()
+    }
+
+    pub fn find_assets_by_id<'a>(&'a self, filter: &AssetFilter) -> impl ExactSizeIterator<Item = BoundAsset<'a>> {
+        let mut out = vec![];
+        for asset in self.assets.values() {
+            if asset.id_matches(filter) {
+                out.push(asset.bind(self));
             }
-            else {
-                false
-            }
+        }
+
+        out.into_iter()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AssetFilter {
+    re: Regex,
+    invert: bool,
+}
+
+impl AssetFilter {
+    pub fn new(re: Regex, invert: bool) -> Self {
+        Self { re, invert }
+    }
+
+    pub fn matches(&self, a: &str) -> bool {
+        self.invert ^ self.re.is_match(a)
+    }
+}
+
+impl TryFrom<&str> for AssetFilter {
+    type Error = regex::Error;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let (invert, pat) = if value.starts_with('~') {
+            (true, value.split_at(1).1)
+        } else {
+            (false, value)
+        };
+        Ok(Self {
+            invert,
+            re: RegexBuilder::new(pat).unicode(false).build()?,
         })
+    }
+}
+
+impl TryFrom<&String> for AssetFilter {
+    type Error = regex::Error;
+    fn try_from(value: &String) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_str())
+    }
+}
+
+impl TryFrom<String> for AssetFilter {
+    type Error = regex::Error;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_str())
+    }
+}
+
+impl Display for AssetFilter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}",
+            if self.invert { "~" } else { "" },
+            self.re,
+        )
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn asset_filter() {
+        let filter = AssetFilter::try_from("abcd").unwrap();
+        assert!(filter.matches("abcdefg"));
+        assert!(!filter.matches("cdefg"));
+        
+        let filter = AssetFilter::try_from("~abcd").unwrap();
+        assert!(!filter.matches("abcdefg"));
+        assert!(filter.matches("cdefg"));
     }
 }

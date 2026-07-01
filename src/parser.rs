@@ -11,9 +11,10 @@ mod loc_resource;
 #[cfg(feature = "locstring")]
 mod loc_override;
 
-pub use csharp::type_broker::TypeBroker;
+pub use csharp::{type_broker::TypeBroker, qualified_name::{QualifiedName, QualifiedNameOwned}};
 
 use std::{
+    error::Error,
     sync::{Arc, Mutex},
     path::{Path, PathBuf},
 };
@@ -22,24 +23,30 @@ use crate::{
     asset_type::AssetType,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ParseError {
     pub path: PathBuf,
     pub message: String,
+    pub inner: Option<Box<dyn Error + Send>>,
 }
 
 impl ParseError {
-    pub fn new(path: &Path, message: String) -> Self {
+    pub fn new(path: impl Into<PathBuf>, message: impl Into<String>) -> Self {
         Self {
-            path: path.to_path_buf(),
-            message,
+            path: path.into(),
+            message: message.into(),
+            inner: None,
         }
     }
 }
 
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.path.display(), self.message)
+        if let Some(e) = self.inner.as_ref() {
+            write!(f, "{}: {} ({})", self.path.display(), self.message, e)
+        } else {
+            write!(f, "{}: {}", self.path.display(), self.message)
+        }
     }
 }
 

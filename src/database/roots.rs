@@ -1,26 +1,23 @@
 use std::{
     collections::{HashMap, HashSet},
-    path::{PathBuf},
+    path::PathBuf,
     fs,
 };
 use crate::{
     parser::{
+        ParseError,
         manifest_json::ManifestJson,
         package_json::PackageJson,
     },
-    util::read_file_no_bom
+    util::{read_file_no_bom},
 };
 use super::{Database, DatabaseError};
 
 impl Database {
     pub fn add_root_str(&mut self, path: &str) -> Result<(), DatabaseError> {
-        let abs_root = match fs::canonicalize(path) {
-            Ok(p) => p,
-            Err(_) => return Err(DatabaseError {
-                message: format!("failed to canonicalize path '{path}'"),
-                inner: None,
-            }),
-        };
+        let abs_root = PathBuf::from(path);
+        let abs_root = abs_root.canonicalize()
+            .map_err(|e| DatabaseError::BadPath(abs_root))?;
         self.add_root(abs_root, &mut HashSet::new())
     }
 
@@ -48,17 +45,11 @@ impl Database {
         if manifest_path.exists() {
             let reader = match read_file_no_bom(&manifest_path) {
                 Ok(r) => r,
-                Err(_) => return Err(DatabaseError {
-                    message: format!("failed to read package file '{}'", manifest_path.display()),
-                    inner: None,
-                }),
+                Err(_) => return Err(DatabaseError::BadPath(manifest_path)),
             };
             let manifest: ManifestJson = match serde_json::from_reader(reader) {
                 Ok(m) => m,
-                Err(_) => return Err(DatabaseError {
-                    message: format!("failed to parse manifest file '{}'", manifest_path.display()),
-                    inner: None,
-                }),
+                Err(_) => return Err(DatabaseError::parse(manifest_path, "Failed to parse manifest file")),
             };
 
             for (name, version) in manifest.dependencies {
@@ -87,17 +78,11 @@ impl Database {
         if package_path.exists() {
             let reader = match read_file_no_bom(&package_path) {
                 Ok(r) => r,
-                Err(_) => return Err(DatabaseError {
-                    message: format!("failed to read package file '{}'", package_path.display()),
-                    inner: None,
-                }),
+                Err(_) => return Err(DatabaseError::parse(package_path, "Failed to read package file")),
             };
             let package: PackageJson = match serde_json::from_reader(reader) {
                 Ok(p) => p,
-                Err(_) => return Err(DatabaseError {
-                    message: format!("failed to parse package file '{}'", package_path.display()),
-                    inner: None,
-                }),
+                Err(_) => return Err(DatabaseError::parse(package_path, "Failed to parse package file")),
             };
 
             for (name, version) in package.dependencies.unwrap_or(HashMap::new()) {
@@ -126,10 +111,7 @@ impl Database {
         if lib_path.exists() {
             let dir = match fs::read_dir(&lib_path) {
                 Ok(d) => d,
-                Err(_) => return Err(DatabaseError {
-                    message: format!("failed to read directory '{}'", lib_path.display()),
-                    inner: None,
-                }),
+                Err(_) => return Err(DatabaseError::BadPath(lib_path)),
             };
             for pkg in dir {
                 let entry = match pkg {
@@ -174,10 +156,7 @@ impl Database {
             Ok(path.clone())
         }
         else {
-            Err(DatabaseError {
-                message: format!("Path '{}' is not absolute and no relative root is set.", path.display()),
-                inner: None,
-            })
+            Err(DatabaseError::BadPath(path.clone()))
         }
     }
 }

@@ -1,6 +1,8 @@
-//mod queries;
+mod queries;
+mod structure;
 mod find_types;
 pub mod type_broker;
+pub mod qualified_name;
 
 #[cfg(feature = "locstring")]
 mod find_locstrings;
@@ -31,6 +33,7 @@ pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>, broker: &Arc<Mute
         Err(e) => return Err(ParseError {
             path: path.clone(),
             message: format!("Failed to read C# file: {}", e),
+            inner: Some(Box::new(e)),
         }),
     };
 
@@ -39,14 +42,16 @@ pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>, broker: &Arc<Mute
         Err(e) => return Err(ParseError {
             path: path.clone(),
             message: format!("Failed to read C# file metadata: {}", e),
+            inner: Some(Box::new(e)),
         }),
     };
 
     let mut buf = Vec::with_capacity(len);
-    if file.read_to_end(&mut buf).is_err() {
+    if let Err(e) = file.read_to_end(&mut buf) {
         return Err(ParseError {
             path: path.clone(),
             message: "Failed to read C# file".into(),
+            inner: Some(Box::new(e)),
         });
     }
 
@@ -70,6 +75,7 @@ fn parse_buffer(
         None => return Err(ParseError {
             path: path.clone(),
             message: "Failed to parse C# file".into(),
+            ..Default::default()
         }),
     };
 
@@ -82,143 +88,114 @@ fn parse_buffer(
 }
 
 #[cfg(test)]
-mod test {
+pub mod test {
     use super::*;
-    use std::collections::HashSet;
-    use crate::{AssetType, Id, Relation};
+    use tree_sitter::{Node, Point, Tree};
+    use std::{
+        collections::HashSet,
+        fmt::{Display, Formatter, Result as FResult},
+    };
+    use pretty_assertions::assert_eq;
+    use crate::{AssetType, Id, Relation, QualifiedNameOwned};
 
-    #[test]
-    fn test_parse_csharp() -> Result<(), ParseError> {
-        let code = r#"
-using System;
-using My.DifferentNamespace;
-
-namespace My.Namespace {
-    public class MyClass {
-        internal class UnderClass { }
-
-        private static My.OtherNamespace.LocalizedString locstringNormal = LocStringCache.Get("NormalKey");
-
-        private static LocalizedString locstringPrefixed = LocStringCache.Get(
-            key: "PrefixedKey",
-            formatArgs: "Some other text");
-
-        private static LocalizedString locstringBad = LocStringCache.Get(someKey);
-
-        private static LocalizedString locstringBadPrefix = LocStringCache.Get(key: someKey);
-
-        public int MyProperty { get; set; }
-    }
-
-    struct MyStruct {
-        public int X;
-        public int Y;
-    }
-
-    enum MyEnum {
-        First,
-        Second,
-        Third
-    }
-
-    interface IMyInterface {
-        void DoSomething();
-    }
-
-    namespace InnerNamespace {
-        class InnerClass { }
-    }
-}
-"#;
-        let mut asset = Asset {
-            asset_type: AssetType::CsFile,
-            ..Default::default()
-        };
-        let broker = Arc::new(Mutex::new(TypeBroker::new()));
-        let more_assets = parse_buffer(code.as_bytes(), &mut asset, &"no_path".into(), &broker)?;
-        let broker = Arc::into_inner(broker).unwrap().into_inner().unwrap();
-
-        assert_eq!(asset.relations, HashSet::from([
-            Relation::Uses(Id::Loc("NormalKey".into())),
-            Relation::Uses(Id::Loc("PrefixedKey".into()))
-        ]));
-
-        let more_reference = vec![
-            Asset {
-                id: Id::CsType { name: "MyClass".into(), namespace: Some("My.Namespace".into()) },
-                asset_type: AssetType::CsType,
-                relations: HashSet::from([
-                    Relation::ContainedBy(Id::None),
-                ]),
-                ..Default::default()
-            },
-            Asset {
-                id: Id::CsType { name: "MyClass.UnderClass".into(), namespace: Some("My.Namespace".into()) },
-                asset_type: AssetType::CsType,
-                relations: HashSet::from([
-                    Relation::ContainedBy(Id::None),
-                ]),
-                ..Default::default()
-            },
-            Asset {
-                id: Id::CsType { name: "MyStruct".into(), namespace: Some("My.Namespace".into()) },
-                asset_type: AssetType::CsType,
-                relations: HashSet::from([
-                    Relation::ContainedBy(Id::None),
-                ]),
-                ..Default::default()
-            },
-            Asset {
-                id: Id::CsType { name: "MyEnum".into(), namespace: Some("My.Namespace".into()) },
-                asset_type: AssetType::CsType,
-                relations: HashSet::from([
-                    Relation::ContainedBy(Id::None),
-                ]),
-                ..Default::default()
-            },
-            Asset {
-                id: Id::CsType { name: "IMyInterface".into(), namespace: Some("My.Namespace".into()) },
-                asset_type: AssetType::CsType,
-                relations: HashSet::from([
-                    Relation::ContainedBy(Id::None),
-                ]),
-                ..Default::default()
-            },
-            Asset {
-                id: Id::CsType { name: "InnerClass".into(), namespace: Some("My.Namespace.InnerNamespace".into()) },
-                asset_type: AssetType::CsType,
-                relations: HashSet::from([
-                    Relation::ContainedBy(Id::None),
-                ]),
-                ..Default::default()
-            },
-        ];
-        for (i, a) in more_assets.iter().enumerate() {
-            assert_eq!(a, more_reference.get(i).unwrap());
+    
+    pub fn _debug_up(node: Node, buffer: &[u8]) {
+        let mut n = Some(node);
+        while let Some(node) = n {
+            let text = node.utf8_text(buffer).unwrap().split('\n').next().unwrap();
+            if text.len() < 100 {
+                println!("{}: {}", node.kind(), text);
+            }
+            else {
+                println!("{}: {}...<{} bytes>", node.kind(), &text[..100], node.end_byte() - node.start_byte() - 100);
+            }
+            n = node.parent();
         }
-
-        let requests_ref = HashSet::from([
-            type_broker::TypeRequest::new(
-                &Id::CsType { name: "MyClass".into(), namespace: Some("My.Namespace".into()) },
-                "LocalizedString",
-                &vec!["My.OtherNamespace".into()],
-                true,
-            ),
-            type_broker::TypeRequest::new(
-                &Id::CsType { name: "MyClass".into(), namespace: Some("My.Namespace".into()) },
-                "LocalizedString",
-                &vec!["My.DifferentNamespace".into(), "My.Namespace".into()],
-                false,
-            ),
-            type_broker::TypeRequest::new(
-                &Id::CsType { name: "MyClass".into(), namespace: Some("My.Namespace".into()) },
-                "LocStringCache",
-                &vec!["My.DifferentNamespace".into(), "My.Namespace".into()],
-                false,
-            ),
-        ]);
-        assert_eq!(broker.requests().difference(&requests_ref).collect::<Vec<&type_broker::TypeRequest>>(), Vec::<&type_broker::TypeRequest>::new());
-
-        Ok(())
+        println!();
     }
+
+    pub fn _debug_down(node: Node, buffer: &[u8], max_depth: usize) {
+        fn helper(node: Node, buffer: &[u8], depth: usize, max_depth: usize) {
+            let indent = " ".repeat(depth);
+            let kind = node.kind();
+            let text = node.utf8_text(buffer).unwrap().split('\n').next().unwrap();
+            if text.len() < 100 {
+                println!("{indent}{kind}: {text}");
+            }
+            else {
+                println!("{indent}{kind}: {}...<{} bytes>", &text[..100], node.end_byte() - node.start_byte() - 100);
+            }
+
+            if depth >= max_depth {
+                return;
+            }
+            
+            let mut cursor = node.walk();
+            for c in node.children(&mut cursor) {
+                helper(c, buffer, depth + 1, max_depth);
+            }
+        }
+        helper(node, buffer, 0, max_depth);
+    }
+
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+    pub struct NodeLike {
+        pub kind: &'static str,
+        pub start_position: Point,
+    }
+
+    impl NodeLike {
+        pub const fn new(kind: &'static str, row: usize, column: usize) -> Self {
+            Self {
+                kind,
+                start_position: Point { row, column },
+            }
+        }
+    }
+
+    impl Display for NodeLike {
+        fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+            write!(f, "{{ {kind} @ ({row},{column})",
+                kind = self.kind,
+                row = self.start_position.row,
+                column = self.start_position.column,
+            )
+        }
+    }
+
+    impl PartialEq<Node<'_>> for NodeLike {
+        fn eq(&self, other: &Node<'_>) -> bool {
+            self.kind == other.kind() && self.start_position == other.start_position()
+        }
+    }
+
+    impl From<Node<'_>> for NodeLike {
+        fn from(value: Node<'_>) -> Self {
+            Self {
+                kind: value.kind(),
+                start_position: value.start_position(),
+            }
+        }
+    }
+
+    pub const NS_TEST_CODE: &[u8] = include_bytes!("./csharp/test/ns_test.cs");
+    pub static NS_TEST_TREE: LazyLock<Tree> = LazyLock::new(|| {
+        let mut parser = Parser::new();
+        parser.set_language(&CS_LANG).expect("Failed to set language, bad lang version");
+        parser.parse(NS_TEST_CODE, None).expect("Failed to read code")
+    });
+
+    pub const TYPE_TEST_CODE: &[u8] = include_bytes!("./csharp/test/type_test.cs");
+    pub static TYPE_TEST_TREE: LazyLock<Tree> = LazyLock::new(|| {
+        let mut parser = Parser::new();
+        parser.set_language(&CS_LANG).expect("Failed to set language, bad lang version");
+        parser.parse(TYPE_TEST_CODE, None).expect("Failed to read code")
+    });
+
+    pub const VAR_TEST_CODE: &[u8] = include_bytes!("./csharp/test/var_test.cs");
+    pub static VAR_TEST_TREE: LazyLock<Tree> = LazyLock::new(|| {
+        let mut parser = Parser::new();
+        parser.set_language(&CS_LANG).expect("Failed to set language, bad lang version");
+        parser.parse(VAR_TEST_CODE, None).expect("Failed to read code")
+    });
 }

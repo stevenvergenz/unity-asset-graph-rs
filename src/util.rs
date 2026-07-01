@@ -57,5 +57,5 @@ pub fn get_id_of_asset(path: &Path) -> Result<Id, ParseError> {
             return Ok(Id::Guid(uuid));
         }
     }
-    Err(ParseError::new(&path, "No uuid found in meta file".into()))
+    Err(ParseError::new(&path, "No uuid found in meta file"))
 }

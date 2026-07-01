@@ -10,51 +10,17 @@ use tree_sitter::{
     Tree,
 };
 use crate::{
-    Asset, 
-    AssetType, 
-    Id, 
-    parser::{ParseError, TypeBroker}, 
-    Relation,
+    Asset, AssetType, Id, QualifiedName, Relation, parser::{ParseError, TypeBroker}
 };
 
-const EXCLUDED_NS: [&str; 3] = [
-    "System.",
-    "UnityEngine.",
-    "UnityEditor.",
-];
+use super::{
+    qualified_name::{QualifiedNameOwned, QualifiedNameRef, Error as NameError},
+    structure::*,
+    queries::kinds as k,
+    type_broker::TypeRequest,
+};
 
-struct TypeInfo<'a> {
-    node: Node<'a>,
-    name: String,
-    namespace: Option<String>,
-}
-
-impl<'a> std::convert::Into<String> for TypeInfo<'a> {
-    fn into(self) -> String {
-        if let Some(ns) = self.namespace {
-            format!("{ns}.{}", self.name)
-        }
-        else {
-            self.name
-        }
-    }
-}
-
-static USING_QUERY: LazyLock<Query> = LazyLock::new(|| {
-    Query::new(&super::CS_LANG, r#"
-[
-    (using_directive
-        name: (identifier) @alias
-        (type) @type
-    )
-    (using_directive
-        (qualified_name) @type
-        !name
-    )
-]"#
-    ).expect("Failed to compile using query")
-});
-
+/// Find type declarations and usages in the given syntax tree, updating the provided asset and type broker accordingly.
 pub fn find_types(
     tree: &Tree, 
     buffer: &[u8], 
@@ -62,185 +28,175 @@ pub fn find_types(
     def_assets: &mut Vec<Asset>, 
     broker: &Arc<Mutex<TypeBroker>>,
 ) -> Result<(), ParseError> {
-    let mut usings = vec![];
-    let mut aliases = HashMap::new();
+    let info = evaluate_structure(tree, buffer)
+        .map_err(|e| ParseError {
+            path: asset.path.as_ref().unwrap().clone(),
+            message: "Failed to analyze structure of C# file".to_string(),
+            inner: Some(Box::new(e)),
+        })?;
 
-    let mut q = QueryCursor::new();
-    let mut iter = q.matches(&USING_QUERY, tree.root_node(), buffer);
-    'a: while let Some(m) = iter.next() {
-        if let Some(alias) = m.nodes_for_capture_index(USING_QUERY.capture_index_for_name("alias").unwrap()).next()
-        && let Some(fqn_node) = m.nodes_for_capture_index(USING_QUERY.capture_index_for_name("type").unwrap()).next() {
-            let fqn = fqn_node.utf8_text(buffer).unwrap();
-            if let Some((namespace, name)) = fqn.rsplit_once(".") {
-                aliases.insert(alias, Id::CsType { name: name.into(), namespace: Some(namespace.into()) });
-            }
-            else {
-                aliases.insert(alias, Id::CsType { name: fqn.into(), namespace: None });
-            }
-        }
-        else {
-            let text = m.nodes_for_capture_index(USING_QUERY.capture_index_for_name("type").unwrap())
-                .next()
-                .unwrap()
-                .utf8_text(buffer)
-                .unwrap();
+    let asset_map = process_declarations(&info)
+        .map_err(|e| ParseError {
+            path: asset.path.as_ref().unwrap().clone(),
+            message: "Failed to qualify type declaration names".to_string(),
+            inner: Some(Box::new(e)),
+        })?;
 
-            for exns in EXCLUDED_NS {
-                if text.starts_with(exns) {
-                    break 'a;
-                }
-            }
-            usings.push(text.into());
-        }
+    for name in asset_map.values() {
+        def_assets.push(Asset::new(
+            Id::CsType(name.to_owned()),
+            AssetType::CsType,
+            None,
+            [Relation::ContainedBy(asset.id.clone())],
+        ));
     }
 
-    let decls = find_declarations(tree, buffer);
-    for decl in &decls {
-        let a = Asset {
-            id: Id::CsType { name: decl.name.clone(), namespace: decl.namespace.clone() },
-            path: None,
-            asset_type: AssetType::CsType,
-            relations: HashSet::from([Relation::ContainedBy(asset.id.clone())]),
-            ..Default::default()
-        };
-
-        for usage in find_usages(decl.node, buffer) {
-            if let Some(t) = aliases.get(&usage) {
-                broker.lock().unwrap().request_known(&a.id, t);
-            }
-            else if usage.kind() == "qualified_name" {
-                broker.lock().unwrap().request_known(&a.id, &resolve_qualified_name(usage, buffer))
-            }
-            else {
-                let mut usings = usings.clone();
-                if let Some(n) = &decl.namespace {
-                    usings.push(n.clone())
-                }
-                let text = usage.utf8_text(buffer).unwrap();
-                if text != decl.name {
-                    broker.lock().unwrap().request(&a.id, text, &usings);
-                }
-            }
-        }
-
-        def_assets.push(a);
+    let mut b = broker.lock().unwrap();
+    for r in process_type_usages(&info, &asset_map) {
+        b.push(r);
     }
 
     Ok(())
 }
 
-/// Query to find class, struct, enum, and interface declarations.
-/// Syntax tree identifiers come from https://github.com/tree-sitter/tree-sitter-c-sharp/blob/master/src/node-types.json
-static CSOBJ_QUERY: LazyLock<Query> = LazyLock::new(|| {
-    Query::new(&super::CS_LANG, r#"
-[
-    (class_declaration)
-    (struct_declaration)
-    (enum_declaration)
-    (interface_declaration)
-] @decl"#
-    ).expect("Failed to compile class query")
-});
+fn process_declarations<'t, 'b>(info: &StructureInfo<'b, 't>) -> Result<HashMap<Node<'t>, QualifiedNameRef<'b>>, NameError> {
+    // identify non-nested types, create assets for them
+    let mut asset_map = HashMap::new();
 
-fn find_declarations<'a, 'b>(
-    tree: &'a Tree,
-    buffer: &'b [u8],
-) -> Vec<TypeInfo<'a>> {
-    let mut decls = vec![];
+    'decls: for (node, name) in &info.type_decl_nodes {
+        // walk up the node tree from the type decl
+        let mut full_name = name.clone();
+        let mut parent = node.clone();
+        while let Some(p) = parent.parent() {
+            // do not record assets for nested types
+            if let Some(_) = info.type_decl_nodes.get(&p) {
+                continue 'decls;
+            }
+            // if we find a namespace declaration, add it to the fully-qualified type name
+            else if let Some(ns) = info.ns_decl_nodes.get(&p) {
+                full_name = QualifiedNameRef::try_concat(ns.clone(), full_name)?;
+            }
+            parent = p;
+        }
+        
+        if let Some(ref fsns) = info.fsns_decl {
+            full_name = QualifiedNameRef::try_concat(fsns.clone(), full_name)?;
+        }
 
-    // loop over all type declarations
-    let mut q = QueryCursor::new();
-    let mut iter = q.matches(&CSOBJ_QUERY, tree.root_node(), buffer);
-    while let Some(m) = iter.next() {
-        let (name, namespace) = resolve_declaration(m.captures[0].node, buffer);
-        decls.push(TypeInfo {
-            node: m.captures[0].node,
-            name,
-            namespace,
-        });
+        asset_map.insert(node.clone(), full_name);
     }
-    decls
+
+    Ok(asset_map)
 }
 
-/// Walk up from the decl identifier node to find the full name and namespace.
-fn resolve_declaration(decl_node: Node, buffer: &[u8]) -> (String, Option<String>) {
-    let mut name_parts = vec![];
-    let mut node = Some(decl_node);
-    while let Some(n) = node && n.kind() != "namespace_declaration" {
-        if let "class_declaration" | "struct_declaration" | "enum_declaration" | "interface_declaration" = n.kind() {
-            name_parts.push(n.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap())
+fn process_type_usages<'b, 't>(
+    info: &StructureInfo<'b, 't>, decls: &HashMap<Node<'t>, QualifiedNameRef<'b>>,
+) -> HashSet<TypeRequest> {
+    let mut requests = HashSet::new();
+
+    // check all the used types against the declared types, file requests for the mismatches
+    'usages: for (node, name) in info.type_usages.iter() {
+        let mut container = None;
+        let mut use_name = name.clone();
+        let mut ns = vec![];
+        let mut local_ns = vec![];
+
+        // walk up the hierarchy looking for all the stuff
+        let mut i = *node;
+        while let Some(ancestor) = i.parent() {
+
+            // skip if type is locally declared
+            if let Some(scope_decls) = info.type_decl_names.get(&ancestor)
+            && scope_decls.contains(&name) {
+                continue 'usages;
+            }
+
+            // resolve namespace alias if found
+            if let Some(ns_alias) = use_name.alias {
+                if ns_alias == "global" {
+                    use_name.alias = None;
+                    requests.insert(TypeRequest {
+                        requester: Id::CsType(name.to_owned()),
+                        partial_name: use_name.to_owned(),
+                        scoped_namespaces: vec![],
+                    });
+                }
+                else if let Some(scope_aliases) = info.aliases.get(&ancestor)
+                && let Some(sub) = scope_aliases.get(&QualifiedNameRef::from(ns_alias)) {
+                    use_name.resolve_alias(sub.clone());
+                }
+            }
+
+            // save containing class
+            if let Some(decl) = decls.get(&ancestor) {
+                container = container.or(Some(decl.clone()));
+            }
+
+            // save imported namespaces
+            if let Some(scoped_ns) = info.ns_usages.get(&ancestor) {
+                for import in scoped_ns {
+                    ns.push(import.clone());
+                }
+            }
+
+            // namespace declarations
+            if let Some(ns_decl) = info.ns_decl_nodes.get(&ancestor) {
+                // prepend newly found namespace to all the other namespaces we found in our walk
+                // upward, i.e. ["Ns1"] => ["Ns0.Ns1", "Ns0"]
+                local_ns = local_ns.into_iter()
+                    .map(|ns| QualifiedNameRef::concat(ns_decl, ns))
+                    .chain([ns_decl.clone()].into_iter())
+                    .collect();
+            }
+
+            i = ancestor;
         }
-        node = n.parent();
+
+        if let Some(fsns) = &info.fsns_decl {
+            local_ns = local_ns.into_iter()
+                .map(|ns| QualifiedNameRef::concat(fsns, ns))
+                .chain([fsns.clone()].into_iter())
+                .collect();
+        }
+
+        if let Some(c) = container {
+            requests.insert(TypeRequest {
+                requester: Id::CsType(c.to_owned()),
+                partial_name: name.to_owned(),
+                scoped_namespaces: ns.iter().chain(local_ns.iter()).map(|n| n.to_owned()).collect(),
+            });
+        }
     }
 
-    let mut ns_parts: Vec<&str> = vec![];
-    while let Some(n) = node && n.kind() != "compilation_unit" {
-        if n.kind() == "namespace_declaration" {
-            ns_parts.push(
-                n.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap(),
-            );
-        }
-        node = n.parent();
-    }
+    requests
+}
 
-    if let Some(root) = node {
-        for child in root.children(&mut root.walk()) {
-            if child.kind() == "file_scoped_namespace_declaration" {
-                ns_parts.push(
-                    child.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap(),
-                );
+#[cfg(test)]
+mod test {
+    use super::*;
+    use super::super::test::*;
+
+    #[test]
+    fn type_usages_ns() {
+        let info = super::super::structure::evaluate_structure(&NS_TEST_TREE, NS_TEST_CODE).unwrap();
+        let decls = process_declarations(&info).unwrap();
+        let ref_types = process_type_usages(&info, &decls);
+
+        for r in &ref_types {
+            for ns in &r.scoped_namespaces {
+                println!("Scoped ns: {ns}");
             }
         }
-    }
 
-    let name = name_parts.iter().rev().cloned().collect::<Vec<&str>>().join(".");
-    let ns = ns_parts.iter().rev().cloned().collect::<Vec<&str>>().join(".");
-    (name, if ns_parts.is_empty() { None } else { Some(ns) })
-}
-
-static USAGE_QUERY: LazyLock<Query> = LazyLock::new(|| {
-    Query::new(&super::CS_LANG, r#"
-(type) @type
-"#
-    ).expect("Failed to compile usage query")
-});
-
-fn find_usages<'a>(
-    node: Node<'a>, 
-    buffer: &'a [u8], 
-) -> Vec<Node<'a>> {
-    let mut usages = vec![];
-
-    let mut qcursor = QueryCursor::new();
-    let mut iter = qcursor.matches(&USAGE_QUERY, node, buffer);
-    while let Some(m) = iter.next() {
-        let n = m.captures[0].node;
-        if n != node && n.kind() != "predefined_type" {
-            usages.push(n);
-        }
-    }
-    usages
-}
-
-fn resolve_qualified_name(node: Node, buffer: &[u8]) -> Id {
-    if node.kind() != "qualified_name" {
-        panic!();
-    }
-
-    let name = node.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap();
-    let ns = node.child_by_field_name("qualifier").unwrap().utf8_text(buffer).unwrap();
-    Id::CsType { name: name.into(), namespace: Some(ns.into()) }
-}
-
-fn _debug(node: Node, buffer: &[u8]) {
-    let mut n = Some(node);
-    while let Some(node) = n {
-        if node.end_byte() - node.start_byte() < 100 {
-            println!("{}: {}", node.kind(), node.utf8_text(&buffer).unwrap());
-        }
-        else {
-            println!("{}: <{} bytes>", node.kind(), node.end_byte() - node.start_byte());
-        }
-        n = node.parent();
+        assert_eq!(ref_types, HashSet::from([
+            TypeRequest {
+                requester: Id::CsType(QualifiedNameOwned::from("L0.L1.L2.Class2")),
+                partial_name: QualifiedNameOwned::from("L3.Class3"),
+                scoped_namespaces: [
+                    "Ns2", "Ns1", "Ns0",
+                    "L0.L1.L2", "L0.L1", "L0",
+                ].into_iter().map(QualifiedNameOwned::from).collect(),
+            }
+        ]));
     }
 }
