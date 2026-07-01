@@ -1,16 +1,25 @@
-use std::{
-    cell::RefCell, collections::{HashMap, HashSet}, fmt::Display, fs, path::{Path, PathBuf}, str::FromStr,
-};
-use serde::{Deserialize, Serialize};
-use regex::{Regex, RegexBuilder};
 use crate::{
-    BoundAsset, QualifiedName, QualifiedNameOwned, asset::Asset, asset_type::AssetType, id::Id, parser::{ParseError, TypeBroker}
+    BoundAsset, QualifiedName, QualifiedNameOwned,
+    asset::Asset,
+    asset_type::AssetType,
+    id::Id,
+    parser::{ParseError, TypeBroker},
+};
+use regex::{Regex, RegexBuilder};
+use serde::{Deserialize, Serialize};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    fmt::Display,
+    fs,
+    path::{Path, PathBuf},
+    str::FromStr,
 };
 
-mod roots;
 mod populate_pass1;
 mod populate_pass2;
 mod populate_pass3;
+mod roots;
 
 #[derive(Debug)]
 pub enum DatabaseError {
@@ -52,7 +61,7 @@ impl Database {
             Err(e) => {
                 eprintln!("Failed to resolve relative_to root: {e}");
                 None
-            },
+            }
         };
 
         let mut db = Self {
@@ -90,16 +99,16 @@ impl Database {
                     Some((rel_id, mut rel_asset)) => {
                         rel_asset.back_relations.insert(asset.invert_relation(relation));
                         (rel_id, rel_asset)
-                    },
+                    }
                     None => {
                         let a = Asset::new(
-                            relation.id().clone(), 
-                            AssetType::BrokenRef, 
-                            None, 
+                            relation.id().clone(),
+                            AssetType::BrokenRef,
+                            None,
                             [asset.invert_relation(relation)],
                         );
                         (relation.id().clone(), a)
-                    },
+                    }
                 };
                 self.assets.insert(rel_id, rel_asset);
             }
@@ -124,7 +133,11 @@ impl Database {
     }
 
     pub fn assets<'a>(&'a self) -> std::vec::IntoIter<BoundAsset<'a>> {
-        self.assets.values().map(|a| a.bind(self)).collect::<Vec<_>>().into_iter()
+        self.assets
+            .values()
+            .map(|a| a.bind(self))
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     pub fn find_assets_by_path<'a>(&'a self, filter: &AssetFilter) -> impl ExactSizeIterator<Item = BoundAsset<'a>> {
@@ -190,8 +203,14 @@ impl FromStr for AssetFilter {
 
 impl Display for AssetFilter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}{}",
-            if self.invert { "~" } else { "" },
+        write!(
+            f,
+            "{}{}",
+            if self.invert {
+                "~"
+            } else {
+                ""
+            },
             self.re,
         )
     }
@@ -206,7 +225,7 @@ mod test {
         let filter = AssetFilter::from_str("abcd").unwrap();
         assert!(filter.matches("abcdefg"));
         assert!(!filter.matches("cdefg"));
-        
+
         let filter = AssetFilter::from_str("~abcd").unwrap();
         assert!(!filter.matches("abcdefg"));
         assert!(filter.matches("cdefg"));

@@ -1,7 +1,7 @@
-use std::collections::HashSet;
-use clap::Args;
-use unity_asset_graph::{DatabaseFile, AssetFilter, AssetType};
 use crate::CliArgs;
+use clap::Args;
+use std::collections::HashSet;
+use unity_asset_graph::{AssetFilter, AssetType, DatabaseFile};
 
 /// Find broken references in the database
 #[derive(Args)]
@@ -20,23 +20,28 @@ impl BrokenArgs {
         let Self { id, id_only } = &self;
 
         let db = DatabaseFile::load(db_path)
-            .unwrap_or_else(|e| panic!("Failed to load database file from {db_path}: {e}", db_path = db_path.display()))
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Failed to load database file from {db_path}: {e}",
+                    db_path = db_path.display()
+                )
+            })
             .database;
-    
+
         let mut broken_refs = HashSet::new();
         for asset in &db {
             if (id.len() == 0 || id.iter().any(|id| asset.asset.id_matches(id)))
-                && asset.asset_type() == &AssetType::BrokenRef {
+                && asset.asset_type() == &AssetType::BrokenRef
+            {
                 broken_refs.insert(asset);
             }
         }
-    
+
         println!("\nBroken references ({}):", broken_refs.len());
         for asset in &broken_refs {
             if *id_only {
                 println!("{}", asset.id());
-            }
-            else {
+            } else {
                 println!("{}", asset.clone().indent().display_full());
             }
         }
@@ -44,5 +49,4 @@ impl BrokenArgs {
             println!("No broken references found.");
         }
     }
-    
-} 
+}

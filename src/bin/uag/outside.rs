@@ -1,7 +1,7 @@
-use std::collections::{HashMap, HashSet};
-use clap::Args;
-use unity_asset_graph::{DatabaseFile, Id, AssetFilter, BoundAsset, BoundRelation};
 use crate::CliArgs;
+use clap::Args;
+use std::collections::{HashMap, HashSet};
+use unity_asset_graph::{AssetFilter, BoundAsset, BoundRelation, DatabaseFile, Id};
 
 /// Show usages by in-group assets of out-group assets
 #[derive(Args)]
@@ -25,12 +25,22 @@ pub struct OutsideArgs {
 
 impl OutsideArgs {
     pub fn run(&self, CliArgs { db_path, .. }: &CliArgs) {
-        let Self {in_id, in_path, out_id, out_path } = self;
+        let Self {
+            in_id,
+            in_path,
+            out_id,
+            out_path,
+        } = self;
 
         let db = DatabaseFile::load(db_path)
-            .unwrap_or_else(|e| panic!("Failed to load database file from {db_path}: {e}", db_path = db_path.display()))
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Failed to load database file from {db_path}: {e}",
+                    db_path = db_path.display()
+                )
+            })
             .database;
-    
+
         let mut roots = HashSet::new();
         for id in in_id {
             roots.extend(db.find_assets_by_id(&id));
@@ -48,28 +58,34 @@ impl OutsideArgs {
             inside = find_all(root, inside);
         }
         println!("In-group contains {} assets from {root_len} containers", inside.len());
-    
+
         let mut outside = HashMap::new();
         for asset in inside.values() {
             for relation in asset.relations_iter() {
                 if let BoundRelation::Uses(asset) = relation
                     && !inside.contains_key(asset.id())
                     && (out_id.len() == 0 || out_id.iter().any(|re| asset.asset().id_matches(re)))
-                    && (out_path.len() == 0 || out_path.iter().any(|re| asset.path_matches(re))) {
+                    && (out_path.len() == 0 || out_path.iter().any(|re| asset.path_matches(re)))
+                {
                     outside.insert(asset.id().clone(), asset);
                 }
             }
         }
-    
+
         println!("Outside references ({}):", outside.len());
         for outside in outside.values() {
-            println!("{}", outside.display_full_filtered(|r| {
-                if let BoundRelation::UsedBy(a) = r && inside.contains_key(a.id()) {
-                    true
-                } else {
-                    false
-                }
-            }));
+            println!(
+                "{}",
+                outside.display_full_filtered(|r| {
+                    if let BoundRelation::UsedBy(a) = r
+                        && inside.contains_key(a.id())
+                    {
+                        true
+                    } else {
+                        false
+                    }
+                })
+            );
         }
     }
 }
@@ -83,4 +99,3 @@ fn find_all<'a>(asset: BoundAsset<'a>, mut results: HashMap<Id, BoundAsset<'a>>)
     results.insert(asset.id().clone(), asset);
     results
 }
-

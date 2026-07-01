@@ -1,9 +1,9 @@
+use serde::{Deserialize, Serialize};
 use std::{
     convert::From,
     fmt::{Display, Formatter, Result},
     path::PathBuf,
 };
-use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, PartialEq, Eq, Default, Debug, Clone, Copy, Hash)]
 pub enum AssetType {

@@ -1,12 +1,12 @@
+mod broken;
 mod build;
 mod info;
-mod unused;
-mod broken;
 mod outside;
+mod unused;
 
-use std::path::PathBuf;
-use clap::{Parser, Subcommand};
 use crate::{broken::BrokenArgs, build::BuildArgs, info::InfoArgs, outside::OutsideArgs, unused::UnusedArgs};
+use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 pub struct CliArgs {
@@ -42,4 +42,3 @@ impl CliArgs {
 fn main() {
     CliArgs::parse().run();
 }
-
