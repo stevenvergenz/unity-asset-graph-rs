@@ -1,6 +1,6 @@
 [package]
 name = "unity-asset-graph"
-version = "0.2.0-alpha.1"
+version = "0.2.0"
 description = "Query relationships between Unity engine assets/scripts"
 repository = "https://github.com/microsoft/unity-asset-graph-rs"
 license = "MIT"
