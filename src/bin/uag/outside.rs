@@ -4,6 +4,9 @@ use std::collections::{HashMap, HashSet};
 use unity_asset_graph::{AssetFilter, BoundAsset, BoundRelation, DatabaseFile, Id};
 
 /// Show usages by in-group assets of out-group assets
+///
+/// Partial IDs and paths are regular expressions, so escape special symbols with a backslash. Path
+/// separators are always a forward slash '/' regardless of platform.
 #[derive(Args)]
 pub struct OutsideArgs {
     /// Assets recursively contained by this partial ID are "in"

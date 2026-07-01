@@ -8,7 +8,10 @@ use crate::{broken::BrokenArgs, build::BuildArgs, info::InfoArgs, outside::Outsi
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Builds a database of the relationships between all the assets and scripts in a Unity project,
+/// and supports a set of useful queries against that database.
 #[derive(Parser)]
+#[command(version, about, long_about)]
 pub struct CliArgs {
     #[command(subcommand)]
     pub command: CliCommand,

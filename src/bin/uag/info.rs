@@ -3,6 +3,9 @@ use clap::Args;
 use unity_asset_graph::{AssetFilter, DatabaseFile};
 
 /// Get information about specific assets by ID or name
+///
+/// Partial IDs and paths are regular expressions, so escape special symbols with a backslash. Path
+/// separators are always a forward slash '/' regardless of platform.
 #[derive(Args)]
 pub struct InfoArgs {
     /// Partial ID of the asset

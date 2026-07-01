@@ -4,6 +4,9 @@ use std::collections::HashSet;
 use unity_asset_graph::{AssetFilter, AssetType, DatabaseFile};
 
 /// Find broken references in the database
+///
+/// Partial IDs and paths are regular expressions, so escape special symbols with a backslash. Path
+/// separators are always a forward slash '/' regardless of platform.
 #[derive(Args)]
 pub struct BrokenArgs {
     /// Only show assets that match this partial ID

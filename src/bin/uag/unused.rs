@@ -4,6 +4,9 @@ use std::collections::{HashMap, HashSet};
 use unity_asset_graph::{AssetFilter, AssetType, DatabaseFile, Relation};
 
 /// Find unused assets in the database
+///
+/// Partial IDs and paths are regular expressions, so escape special symbols with a backslash. Path
+/// separators are always a forward slash '/' regardless of platform.
 #[derive(Args)]
 pub struct UnusedArgs {
     /// Only show assets whose IDs match this partial ID
